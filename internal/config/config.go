@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/joho/godotenv")
+	"github.com/joho/godotenv"
+)
 
 		// Config encapsulates runtime configuration parameters validated on server boot.
 type Config struct {
@@ -33,17 +35,22 @@ func Load() (*Config, error) {
 	_ = godotenv.Load("../.env")
 	_ = godotenv.Load("../../.env")
 
+	dbURL := cleanEnv("DATABASE_URL", "")
+	if dbURL != "" {
+		_ = os.Setenv("DATABASE_URL", dbURL)
+	}
+
 	cfg := &Config{
-		ServerPort:                 getEnv("SERVER_PORT", "8082"),
-		Env:                        getEnv("ENV", "development"),
-		DatabaseURL:                os.Getenv("DATABASE_URL"),
-		RedisURL:                   getEnv("REDIS_URL", "redis://localhost:6379"),
-		RedisPassword:              os.Getenv("REDIS_PASSWORD"),
+		ServerPort:                 cleanEnv("SERVER_PORT", "8082"),
+		Env:                        cleanEnv("ENV", "development"),
+		DatabaseURL:                dbURL,
+		RedisURL:                   cleanEnv("REDIS_URL", "redis://localhost:6379"),
+		RedisPassword:              cleanEnv("REDIS_PASSWORD", ""),
 		RateLimitMaxRequests:       getEnvAsInt("RATE_LIMIT_MAX_REQUESTS", 30),
 		RateLimitDeleteMaxRequests: getEnvAsInt("RATE_LIMIT_DELETE_MAX_REQUESTS", 3),
-		KafkaBrokers:               []string{getEnv("KAFKA_BROKERS", "localhost:9092")},
-		KafkaTopicUserEvents:       getEnv("KAFKA_TOPIC_USER_EVENTS", "user.events"),
-		OrderServiceGrpcAddr:       getEnv("ORDER_SERVICE_GRPC_ADDR", "localhost:50051"),
+		KafkaBrokers:               []string{cleanEnv("KAFKA_BROKERS", "localhost:9092")},
+		KafkaTopicUserEvents:       cleanEnv("KAFKA_TOPIC_USER_EVENTS", "user.events"),
+		OrderServiceGrpcAddr:       cleanEnv("ORDER_SERVICE_GRPC_ADDR", "localhost:50051"),
 		OrderServiceGrpcTimeout:    time.Duration(getEnvAsInt("ORDER_SERVICE_GRPC_TIMEOUT_MS", 3000)) * time.Millisecond,
 		EnableRateLimiter:          getEnvAsBool("ENABLE_RATE_LIMITER", true),
 	}
@@ -77,6 +84,15 @@ func (c *Config) validate() error {
 	return nil
 }
 
+
+func cleanEnv(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		trimmed := strings.TrimSpace(val)
+		trimmed = strings.Trim(trimmed, "\"'")
+		return trimmed
+	}
+	return fallback
+}
 
 func getEnv(key, fallback string) string {
 	if val := os.Getenv(key); val != "" {

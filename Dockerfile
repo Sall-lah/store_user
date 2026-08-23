@@ -1,28 +1,29 @@
 # ==============================================================================
 # Stage 1: Build Stage
 # ==============================================================================
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
-# Install system build dependencies required by Prisma engine fetching & SSL
+# Install system dependencies required for Go modules, Prisma engine fetching, and SSL
 RUN apk add --no-cache git ca-certificates openssl
 
-# Copy module definitions
+# Pre-copy module manifests and vendored dependencies
 COPY go.mod go.sum ./
-RUN go mod download
+COPY vendor/ ./vendor/
 
 # Copy Prisma schema and generate Linux-compatible Prisma Client Go engine
 COPY prisma/ ./prisma/
-RUN go run github.com/steebchen/prisma-client-go generate --schema=./prisma/schema.prisma
+RUN go run -mod=vendor github.com/steebchen/prisma-client-go generate --schema=./prisma/schema.prisma
 
-# Copy source code and docs
+# Copy application source code and documentation
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 COPY docs/ ./docs/
 
-# Build statically-linked Linux binary
+# Build static binary targeting Linux
 RUN CGO_ENABLED=0 GOOS=linux go build \
+    -mod=vendor \
     -ldflags="-w -s" \
     -o /app/bin/server \
     ./cmd/server/main.go
@@ -32,30 +33,30 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # ==============================================================================
 FROM alpine:3.21 AS runner
 
-# Install runtime dependencies for Prisma query engine and TLS certificates
+# Install runtime dependencies required by Prisma engine and TLS connections
 RUN apk add --no-cache ca-certificates openssl tzdata curl
 
-# Create unprivileged application user for security
+# Create unprivileged application user
 RUN addgroup -g 10001 -S appgroup && \
     adduser -u 10001 -S appuser -G appgroup
 
 WORKDIR /app
 
-# Copy compiled binary and API documentation
+# Copy compiled binary from builder stage
 COPY --from=builder --chown=appuser:appgroup /app/bin/server /app/server
 COPY --from=builder --chown=appuser:appgroup /app/docs /app/docs
 
-# Switch to unprivileged user
+# Switch to non-root user
 USER appuser:appgroup
 
-# Default environment configuration
+# Environment variable defaults
 ENV SERVER_PORT=8082 \
     ENV=production
 
 EXPOSE 8082
 
-# Container health probe
-HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8082/health || exit 1
+# Built-in health probe using the /health endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:${SERVER_PORT}/health || exit 1
 
 ENTRYPOINT ["/app/server"]

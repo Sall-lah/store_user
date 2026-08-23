@@ -2,4 +2,5 @@
 package tools
 
 import (
-	_ " github.com/steebchen/prisma-client-go)
+	_ "github.com/steebchen/prisma-client-go"
+)
