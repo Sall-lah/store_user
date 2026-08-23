@@ -1,0 +1,332 @@
+openapi: 3.1.0
+info:
+  title: Store User Microservice API
+  version: 1.0.0
+  description: |
+    User Profile Management and Account Lifecycle Service.
+    Powered by Go (Chi router), PostgreSQL (Supabase), Prisma Client Go, gRPC (Order Service Check), Apache Kafka Domain Events, and Redis Sliding-Window Rate Limiting.
+
+    ### Authentication & Identity Propagation
+    Authentication is performed at the API Gateway perimeter (`store_gateway`). Upon verifying valid JWT bearer credentials, the gateway injects verified headers:
+    - `X-User-Id`: Authenticated User UUID (e.g. `9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d`).
+    - `X-User-Role`: User permission role (`customer`, `admin`).
+    - `X-User-Email`: Registered email address.
+
+    ### Lifecycle Coordination (Account Deletion)
+    When a customer deletes their account via `DELETE /api/v1/users/account`:
+    1. **Synchronous Pre-flight Check**: Queries `store_order` over gRPC (`OrderService.CheckActiveOrders`). If active orders exist in states `PENDING_PAYMENT`, `PAID`, `PROCESSING`, or `SHIPPED`, the deletion is blocked and returns `409 Conflict`.
+    2. **Hard Deletion**: Permanently purges the user's profile record from PostgreSQL.
+    3. **Asynchronous Broadcast**: Dispatches a `user.deleted` domain event to Kafka topic `user.events` for `store_auth` to blacklist tokens and delete login credentials.
+
+    ### Rate Limiting & Resilience
+    - Profile read (`GET /profile`): 60 requests per minute.
+    - Profile write (`PUT /profile`): 15 requests per minute.
+    - Account delete (`DELETE /account`): 3 requests per minute.
+    - Redis sliding-window counters with fail-open fallback.
+
+servers:
+  - url: http://localhost:8082
+    description: Local User Service Direct
+  - url: http://localhost:80
+    description: API Gateway Ingress
+
+tags:
+  - name: User Profile
+    description: Personal profile details retrieval and updates
+  - name: Account Lifecycle
+    description: Critical lifecycle operations including account deletion
+  - name: Health
+    description: Readiness and liveness service health probes
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health Check
+      description: Returns liveness status of the store_user service.
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/users/profile:
+    get:
+      tags:
+        - User Profile
+      summary: Get User Profile
+      description: Retrieves the personal profile details of the authenticated caller identified by the X-User-Id header. Auto-creates a default baseline profile if first access.
+      security:
+        - GatewayUserIdAuth: []
+      responses:
+        "200":
+          description: User profile retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    put:
+      tags:
+        - User Profile
+      summary: Update User Profile
+      description: Updates mutable profile attributes for the authenticated user. Automatically sanitizes text fields to prevent XSS.
+      security:
+        - GatewayUserIdAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: User profile updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/users/account:
+    delete:
+      tags:
+        - Account Lifecycle
+      summary: Delete User Account
+      description: Performs synchronous order check, deletes user profile data, and broadcasts user.deleted event over Kafka.
+      security:
+        - GatewayUserIdAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountRequest"
+      responses:
+        "200":
+          description: Account permanently deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAccountSuccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Deletion blocked due to active pending or in-flight orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveOrderConflictResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          description: Order verification service unreachable or timed out.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  securitySchemes:
+    GatewayUserIdAuth:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: Verified UUID injected by API Gateway
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "UP"
+        service:
+          type: string
+          example: "store_user"
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+        userId:
+          type: string
+          format: uuid
+          example: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+        fullName:
+          type: string
+          example: "John Doe"
+        phoneNumber:
+          type: string
+          nullable: true
+          example: "+628123456789"
+        avatarUrl:
+          type: string
+          nullable: true
+          example: "https://example.com/avatar.jpg"
+        bio:
+          type: string
+          nullable: true
+          example: "Coffee enthusiast and developer"
+        address:
+          type: string
+          nullable: true
+          example: "123 Green Valley Road, Suite 400"
+        gender:
+          type: string
+          nullable: true
+          enum: [MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY]
+          example: "MALE"
+        dateOfBirth:
+          type: string
+          format: date-time
+          nullable: true
+          example: "1995-08-15T00:00:00Z"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2026-08-20T10:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2026-08-23T12:00:00Z"
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+          maxLength: 100
+          example: "Jane Doe"
+        phoneNumber:
+          type: string
+          example: "+628129876543"
+        avatarUrl:
+          type: string
+          example: "https://example.com/new-avatar.png"
+        bio:
+          type: string
+          maxLength: 500
+          example: "Passionate reader and avid traveler."
+        address:
+          type: string
+          maxLength: 255
+          example: "456 Sunset Boulevard, Floor 10"
+        gender:
+          type: string
+          enum: [MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY]
+          example: "FEMALE"
+        dateOfBirth:
+          type: string
+          format: date-time
+          example: "1998-04-22T00:00:00Z"
+
+    DeleteAccountRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          example: "Switching to alternative platform"
+
+    DeleteAccountSuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Account successfully deleted"
+
+    ActiveOrderSummary:
+      type: object
+      properties:
+        orderId:
+          type: string
+          example: "ord_99281"
+        orderNumber:
+          type: string
+          example: "ORD-2026-99281"
+        status:
+          type: string
+          example: "ORDER_STATUS_PROCESSING"
+        totalAmount:
+          type: integer
+          example: 185000
+
+    ActiveOrderConflictResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "cannot delete account: 1 active order(s) in flight"
+        activeOrderCount:
+          type: integer
+          example: 1
+        activeOrders:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveOrderSummary"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "An error occurred while processing the request"
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters or payload formatting.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Authentication identity missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until retry is permitted.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "too many requests, please slow down"
+              retryAfter:
+                type: integer
+                example: 10
+    InternalServerError:
+      description: Unexpected server failure.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

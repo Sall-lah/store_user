@@ -1,0 +1,33 @@
+# Binaries and build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Agent files
+.agent/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Test coverage
+*.out
+*.cover
+coverage/
+
+# Scratch & temporary logs
+scratch/
+*.log
