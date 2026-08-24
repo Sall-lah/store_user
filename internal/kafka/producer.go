@@ -15,6 +15,7 @@ import (
 type Producer interface {
 	Publish(ctx context.Context, topic, key string, payload []byte) error
 	PublishUserDeleted(ctx context.Context, topic, userID, reason string) error
+	PublishUserBanned(ctx context.Context, topic, userID, reason string) error
 	Close() error
 }
 
@@ -93,6 +94,24 @@ func (p *KafkaProducer) PublishUserDeleted(ctx context.Context, topic, userID, r
 	payload, err := event.Serialize()
 	if err != nil {
 		return fmt.Errorf("failed to serialize user.deleted event: %w", err)
+	}
+
+	return p.Publish(ctx, topic, userID, payload)
+}
+
+// PublishUserBanned constructs and publishes the LifecycleEvent for administrative user ban.
+// Why: Encapsulates user ban domain event creation and topic dispatch into a single typed helper method.
+func (p *KafkaProducer) PublishUserBanned(ctx context.Context, topic, userID, reason string) error {
+	event := LifecycleEvent{
+		Event:     EventUserBanned,
+		UserID:    userID,
+		Timestamp: time.Now().UTC(),
+		Reason:    reason,
+	}
+
+	payload, err := event.Serialize()
+	if err != nil {
+		return fmt.Errorf("failed to serialize user.banned event: %w", err)
 	}
 
 	return p.Publish(ctx, topic, userID, payload)

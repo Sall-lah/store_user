@@ -47,6 +47,21 @@ func (m *MockProducer) PublishUserDeleted(ctx context.Context, topic, userID, re
 	return m.Publish(ctx, topic, userID, payload)
 }
 
+// PublishUserBanned creates the lifecycle event and stores it in memory.
+func (m *MockProducer) PublishUserBanned(ctx context.Context, topic, userID, reason string) error {
+	event := LifecycleEvent{
+		Event:     EventUserBanned,
+		UserID:    userID,
+		Timestamp: time.Now().UTC(),
+		Reason:    reason,
+	}
+	payload, err := event.Serialize()
+	if err != nil {
+		return err
+	}
+	return m.Publish(ctx, topic, userID, payload)
+}
+
 // Close marks mock producer as closed.
 func (m *MockProducer) Close() error {
 	return nil
