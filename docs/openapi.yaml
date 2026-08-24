@@ -12,16 +12,22 @@ info:
     - `X-User-Role`: User permission role (`customer`, `admin`).
     - `X-User-Email`: Registered email address.
 
-    ### Lifecycle Coordination (Account Deletion)
-    When a customer deletes their account via `DELETE /api/users/account`:
-    1. **Synchronous Pre-flight Check**: Queries `store_order` over gRPC (`OrderService.CheckActiveOrders`). If active orders exist in states `PENDING_PAYMENT`, `PAID`, `PROCESSING`, or `SHIPPED`, the deletion is blocked and returns `409 Conflict`.
-    2. **Hard Deletion**: Permanently purges the user's profile record from PostgreSQL.
-    3. **Asynchronous Broadcast**: Dispatches a `user.deleted` domain event to Kafka topic `user.events` for `store_auth` to blacklist tokens and delete login credentials.
+    ### Lifecycle Coordination (Account Deletion & Banning)
+    - **Customer Self-Deletion (`DELETE /api/users/account`)**:
+      1. Synchronous Pre-flight Check: Queries `store_order` over gRPC (`OrderService.CheckActiveOrders`). If active orders exist (`PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`), the deletion is blocked (`409 Conflict`).
+      2. Hard Deletion: Purges user profile from PostgreSQL.
+      3. Asynchronous Broadcast: Dispatches `user.deleted` on `user.events` with dual-compatible keys for `store_auth` token revocation and credential deletion.
+    - **Admin Force Deletion (`DELETE /api/admin/users/{id}`)**:
+      - Bypasses order checks, purges profile and notifications from PostgreSQL, and broadcasts `user.deleted` with reason `admin_deletion`.
+    - **Admin Account Ban (`POST /api/admin/users/{id}/ban`)**:
+      - Forcefully bans a user account while strictly preserving customer profile and notification data for audit and forensics.
+      - Broadcasts `user.banned` on `user.events` with dual-compatible keys (`event`/`event_type`, `userId`/`user_id`) to trigger token revocation in `store_auth` and order cancellation in `store_order`.
 
     ### Rate Limiting & Resilience
     - Profile read (`GET /api/users/profile`): 60 requests per minute.
     - Profile write (`PUT /api/users/profile`): 15 requests per minute.
     - Account delete (`DELETE /api/users/account`): 3 requests per minute.
+    - Admin user operations (`DELETE /api/admin/users/{id}`, `POST /api/admin/users/{id}/ban`): 15 requests per minute.
     - Notification feed read (`GET /api/users/notifications`): 60 requests per minute.
     - Notification read-status mutation & deletion: 30 requests per minute.
     - Redis sliding-window counters with fail-open fallback.
