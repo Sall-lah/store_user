@@ -405,6 +405,70 @@
         }
       }
     },
+    "/api/admin/users/{id}/ban": {
+      "post": {
+        "tags": [
+          "Admin User Management"
+        ],
+        "summary": "Admin Ban User Account",
+        "description": "Forcefully bans a target user account by UUID.\nPreserves customer profile and notifications in the database for auditing and forensic investigations.\nBroadcasts a `user.banned` event on Kafka topic `user.events` with reason for `store_auth` (session revocation) and `store_order` (unpaid order cancellation).\n",
+        "security": [
+          {
+            "GatewayUserIdAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Target User UUID identifier to ban",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminBanUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User account successfully banned by admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBanUserSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
     "/api/users/notifications": {
       "get": {
         "tags": [
@@ -786,6 +850,24 @@
           "message": {
             "type": "string",
             "example": "User account successfully deleted by admin"
+          }
+        }
+      },
+      "AdminBanUserRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Fraudulent chargeback activity"
+          }
+        }
+      },
+      "AdminBanUserSuccessResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "User account successfully banned by admin"
           }
         }
       },

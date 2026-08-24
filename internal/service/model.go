@@ -33,4 +33,10 @@ type DeleteAccountRequest struct {
 	Reason string `json:"reason"`
 }
 
+// BanUserRequest defines optional parameters provided when an administrator bans a user account.
+type BanUserRequest struct {
+	Reason string `json:"reason"`
+}
+
+
 

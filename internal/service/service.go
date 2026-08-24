@@ -21,6 +21,7 @@ type UserService interface {
 	UpdateProfile(ctx context.Context, userID string, req UpdateProfileRequest) (*repository.UserProfile, error)
 	DeleteAccount(ctx context.Context, userID string, req DeleteAccountRequest) error
 	AdminDeleteUser(ctx context.Context, targetUserID string) error
+	AdminBanUser(ctx context.Context, targetUserID string, req BanUserRequest) error
 }
 
 // UserServiceImpl implements UserService with persistence, gRPC, and messaging dependencies.
@@ -211,4 +212,29 @@ func (s *UserServiceImpl) AdminDeleteUser(ctx context.Context, targetUserID stri
 
 	return nil
 }
+
+// AdminBanUser forcefully bans a user's account, preserving profile records for audit/forensics, and publishes Kafka lifecycle event.
+// Why: Enables administrators to suspend fraudulent or abusive users while retaining data needed for legal and dispute defense.
+func (s *UserServiceImpl) AdminBanUser(ctx context.Context, targetUserID string, req BanUserRequest) error {
+	trimmedID := strings.TrimSpace(targetUserID)
+	if trimmedID == "" || !validator.ValidateUUID(trimmedID) {
+		return ErrInvalidUserID
+	}
+
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "admin_ban"
+	}
+
+	// 1. Publish asynchronous user.banned domain event to Kafka
+	if s.kafkaProducer != nil {
+		if err := s.kafkaProducer.PublishUserBanned(ctx, s.kafkaTopic, trimmedID, reason); err != nil {
+			log.Printf("[UserService] Warning: Failed to publish user.banned event for user %s: %v", trimmedID, err)
+			return ErrKafkaPublishFailed
+		}
+	}
+
+	return nil
+}
+
 

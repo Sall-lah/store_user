@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -52,3 +53,40 @@ func (h *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		"message": "User account successfully deleted by admin",
 	})
 }
+
+// BanUser handles POST /api/admin/users/{id}/ban.
+// Why: Provides administrators with a forced account ban capability that freezes credentials and cancels orders while preserving PII.
+func (h *AdminHandler) BanUser(w http.ResponseWriter, r *http.Request) {
+	targetUserID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if targetUserID == "" || !validator.ValidateUUID(targetUserID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid target user UUID format",
+		})
+		return
+	}
+
+	var req service.BanUserRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	err := h.svc.AdminBanUser(r.Context(), targetUserID, req)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidUserID) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "invalid target user UUID format",
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "failed to ban user account",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "User account successfully banned by admin",
+	})
+}
+

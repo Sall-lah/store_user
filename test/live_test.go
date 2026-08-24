@@ -217,3 +217,92 @@ func TestLive_AdminForceDeleteUserWorkflow(t *testing.T) {
 	t.Logf("✓ Kafka Broadcast: Dispatched domain event {event: user.deleted, userId: %s, reason: %s}", targetUserID, event.Reason)
 }
 
+func TestLive_AdminBanUserWorkflow(t *testing.T) {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Skipf("Skipping live test: config load failed (%v)", err)
+	}
+
+	// 1. Connect to live Prisma PostgreSQL
+	prismaClient := db.NewClient()
+	if err := prismaClient.Prisma.Connect(); err != nil {
+		t.Fatalf("Live PostgreSQL connection failed: %v", err)
+	}
+	defer func() {
+		_ = prismaClient.Prisma.Disconnect()
+	}()
+
+	// 2. Assemble service with live database repository
+	repo := repository.NewPrismaUserProfileRepository(prismaClient)
+	notifRepo := repository.NewPrismaNotificationRepository(prismaClient)
+	orderMock := &order.MockClient{}
+	kafkaMock := &kafka.MockProducer{}
+	svc := service.NewUserService(repo, notifRepo, orderMock, kafkaMock, cfg.KafkaTopicUserEvents)
+	profileHandler := handler.NewProfileHandler(svc)
+	adminHandler := handler.NewAdminHandler(svc)
+	server := router.NewRouter(cfg, profileHandler, adminHandler, nil, nil, nil)
+
+	// 3. Generate random test target user UUID and Admin UUID
+	targetUserID := uuid.NewString()
+	adminUserID := uuid.NewString()
+
+	// Ensure cleanup before/after
+	_ = repo.HardDeleteByUserID(context.Background(), targetUserID)
+	defer func() {
+		_ = repo.HardDeleteByUserID(context.Background(), targetUserID)
+	}()
+
+	// STEP 1: Provision target profile in live PostgreSQL
+	reqCreate := httptest.NewRequest(http.MethodGet, "/api/users/profile", nil)
+	reqCreate.Header.Set("X-User-Id", targetUserID)
+	recCreate := httptest.NewRecorder()
+	server.ServeHTTP(recCreate, reqCreate)
+	if recCreate.Code != http.StatusOK {
+		t.Fatalf("Failed to provision initial profile: %s", recCreate.Body.String())
+	}
+	t.Logf("✓ Live PostgreSQL: Seeded random target user profile %s", targetUserID)
+
+	// STEP 2: Customer attempt to call admin ban route -> 403 Forbidden
+	reqCust := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+targetUserID+"/ban", nil)
+	reqCust.Header.Set("X-User-Id", targetUserID)
+	reqCust.Header.Set("X-User-Role", "CUSTOMER")
+	recCust := httptest.NewRecorder()
+	server.ServeHTTP(recCust, reqCust)
+	if recCust.Code != http.StatusForbidden {
+		t.Fatalf("Expected 403 Forbidden for customer, got: %d", recCust.Code)
+	}
+	t.Logf("✓ Security Check: Non-admin caller correctly rejected with 403 Forbidden")
+
+	// STEP 3: Admin bans user -> 200 OK
+	banBody := `{"reason":"fraudulent_activity"}`
+	reqAdmin := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+targetUserID+"/ban", bytes.NewBufferString(banBody))
+	reqAdmin.Header.Set("X-User-Id", adminUserID)
+	reqAdmin.Header.Set("X-User-Role", "ADMIN")
+	recAdmin := httptest.NewRecorder()
+	server.ServeHTTP(recAdmin, reqAdmin)
+	if recAdmin.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for admin ban, got: %d (body: %s)", recAdmin.Code, recAdmin.Body.String())
+	}
+	t.Logf("✓ Live Admin Action: POST /api/admin/users/%s/ban returned 200 OK", targetUserID)
+
+	// STEP 4: Verify target user profile is PRESERVED in live PostgreSQL database
+	profile, err := repo.GetByUserID(context.Background(), targetUserID)
+	if err != nil || profile == nil {
+		t.Errorf("Expected profile to be preserved in live PostgreSQL, but error was: %v", err)
+	}
+	t.Logf("✓ Live PostgreSQL: Verified user profile %s is preserved in database", targetUserID)
+
+	// STEP 5: Verify Kafka domain event dispatch
+	if len(kafkaMock.PublishedMessages) != 1 {
+		t.Fatalf("Expected 1 Kafka event, got %d", len(kafkaMock.PublishedMessages))
+	}
+	msg := kafkaMock.PublishedMessages[0]
+	var event kafka.LifecycleEvent
+	_ = json.Unmarshal(msg.Payload, &event)
+	if event.Event != "user.banned" || event.UserID != targetUserID || event.Reason != "fraudulent_activity" {
+		t.Errorf("Unexpected Kafka domain event payload: %+v", event)
+	}
+	t.Logf("✓ Kafka Broadcast: Dispatched domain event {event: user.banned, userId: %s, reason: %s}", targetUserID, event.Reason)
+}
+
+

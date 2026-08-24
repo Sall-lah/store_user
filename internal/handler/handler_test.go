@@ -262,3 +262,52 @@ func TestAdminHandler_DeleteUser_InvalidUUID(t *testing.T) {
 	}
 }
 
+func TestAdminHandler_BanUser_Success(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	kafkaMock := &kafka.MockProducer{}
+	svc := service.NewUserService(repo, nil, nil, kafkaMock, "user.events")
+	adminH := NewAdminHandler(svc)
+
+	targetID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+	body := `{"reason":"fraudulent_transactions"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+targetID+"/ban", bytes.NewBufferString(body))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", targetID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rec := httptest.NewRecorder()
+	adminH.BanUser(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got: %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]string
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
+	if resp["message"] != "User account successfully banned by admin" {
+		t.Errorf("unexpected message: %s", resp["message"])
+	}
+
+	if len(kafkaMock.PublishedMessages) != 1 {
+		t.Fatalf("expected 1 published message in kafka, got: %d", len(kafkaMock.PublishedMessages))
+	}
+}
+
+func TestAdminHandler_BanUser_InvalidUUID(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	svc := service.NewUserService(repo, nil, nil, nil, "user.events")
+	adminH := NewAdminHandler(svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/invalid-id/ban", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "invalid-id")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rec := httptest.NewRecorder()
+	adminH.BanUser(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for invalid UUID, got: %d", rec.Code)
+	}
+}
+

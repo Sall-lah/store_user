@@ -103,6 +103,10 @@ func NewRouter(
 			// Admin User Deletion: e.g. 15 req/min
 			sub.With(middleware.RateLimit(limiter, 15, cfg.RateLimitWindow, "ratelimit:admin:user:delete")).
 				Delete("/{id}", adminHandler.DeleteUser)
+
+			// Admin User Ban: e.g. 15 req/min
+			sub.With(middleware.RateLimit(limiter, 15, cfg.RateLimitWindow, "ratelimit:admin:user:ban")).
+				Post("/{id}/ban", adminHandler.BanUser)
 		}
 	}
 

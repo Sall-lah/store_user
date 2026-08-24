@@ -319,3 +319,75 @@ func TestAdminDeleteUser_KafkaFailure(t *testing.T) {
 	}
 }
 
+func TestAdminBanUser_Success_PreservesProfile(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	validUUID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+
+	// Seed profile to ensure it is preserved
+	_, _ = repo.Create(context.Background(), validUUID, "Alice Fraud", nil, nil)
+
+	kafkaMock := &kafka.MockProducer{}
+	svc := NewUserService(repo, nil, nil, kafkaMock, "user.events")
+
+	err := svc.AdminBanUser(context.Background(), validUUID, BanUserRequest{Reason: "payment_chargeback"})
+	if err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+
+	// Profile MUST still exist in repository (not deleted)
+	profile, err := repo.GetByUserID(context.Background(), validUUID)
+	if err != nil || profile == nil {
+		t.Errorf("expected profile to be preserved in repo after ban, got err: %v", err)
+	}
+
+	// Kafka event must be dispatched with user.banned
+	if len(kafkaMock.PublishedMessages) != 1 {
+		t.Fatalf("expected 1 published kafka message, got: %d", len(kafkaMock.PublishedMessages))
+	}
+	if kafkaMock.PublishedMessages[0].Key != validUUID {
+		t.Errorf("expected key '%s', got '%s'", validUUID, kafkaMock.PublishedMessages[0].Key)
+	}
+}
+
+func TestAdminBanUser_DefaultReason(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	validUUID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+
+	kafkaMock := &kafka.MockProducer{}
+	svc := NewUserService(repo, nil, nil, kafkaMock, "user.events")
+
+	err := svc.AdminBanUser(context.Background(), validUUID, BanUserRequest{Reason: ""})
+	if err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+
+	if len(kafkaMock.PublishedMessages) != 1 {
+		t.Fatalf("expected 1 published message, got %d", len(kafkaMock.PublishedMessages))
+	}
+}
+
+func TestAdminBanUser_InvalidUUID(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	svc := NewUserService(repo, nil, nil, nil, "user.events")
+
+	err := svc.AdminBanUser(context.Background(), "not-a-valid-uuid", BanUserRequest{Reason: "test"})
+	if !errors.Is(err, ErrInvalidUserID) {
+		t.Errorf("expected ErrInvalidUserID, got: %v", err)
+	}
+}
+
+func TestAdminBanUser_KafkaFailure(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	validUUID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+
+	kafkaMock := &kafka.MockProducer{
+		PublishError: errors.New("kafka broker unreachable"),
+	}
+	svc := NewUserService(repo, nil, nil, kafkaMock, "user.events")
+
+	err := svc.AdminBanUser(context.Background(), validUUID, BanUserRequest{Reason: "fraud"})
+	if !errors.Is(err, ErrKafkaPublishFailed) {
+		t.Fatalf("expected ErrKafkaPublishFailed, got: %v", err)
+	}
+}
+
