@@ -28,6 +28,22 @@ func (m *MockUserProfileRepository) GetByUserID(ctx context.Context, userID stri
 	return p, nil
 }
 
+// Create adds a new mock profile to memory.
+func (m *MockUserProfileRepository) Create(ctx context.Context, userID, fullName string, phoneNumber, address *string) (*UserProfile, error) {
+	now := time.Now()
+	p := &UserProfile{
+		ID:          "prof-" + userID,
+		UserID:      userID,
+		FullName:    fullName,
+		PhoneNumber: phoneNumber,
+		Address:     address,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	m.Profiles[userID] = p
+	return p, nil
+}
+
 // Upsert creates or mutates a mock profile in memory.
 func (m *MockUserProfileRepository) Upsert(ctx context.Context, userID string, params UpdateProfileParams) (*UserProfile, error) {
 	now := time.Now()
@@ -42,11 +58,7 @@ func (m *MockUserProfileRepository) Upsert(ctx context.Context, userID string, p
 			UserID:      userID,
 			FullName:    fullName,
 			PhoneNumber: params.PhoneNumber,
-			AvatarURL:   params.AvatarURL,
-			Bio:         params.Bio,
 			Address:     params.Address,
-			Gender:      params.Gender,
-			DateOfBirth: params.DateOfBirth,
 			CreatedAt:   now,
 			UpdatedAt:   now,
 		}
@@ -60,20 +72,8 @@ func (m *MockUserProfileRepository) Upsert(ctx context.Context, userID string, p
 	if params.PhoneNumber != nil {
 		p.PhoneNumber = params.PhoneNumber
 	}
-	if params.AvatarURL != nil {
-		p.AvatarURL = params.AvatarURL
-	}
-	if params.Bio != nil {
-		p.Bio = params.Bio
-	}
 	if params.Address != nil {
 		p.Address = params.Address
-	}
-	if params.Gender != nil {
-		p.Gender = params.Gender
-	}
-	if params.DateOfBirth != nil {
-		p.DateOfBirth = params.DateOfBirth
 	}
 	p.UpdatedAt = now
 	return p, nil
@@ -84,3 +84,4 @@ func (m *MockUserProfileRepository) HardDeleteByUserID(ctx context.Context, user
 	delete(m.Profiles, userID)
 	return nil
 }
+

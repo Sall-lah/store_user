@@ -14,11 +14,7 @@ model user_profiles {
   user_id       String    @unique @db.Uuid
   full_name     String
   phone_number  String?
-  avatar_url    String?
-  bio          String?
   address       String?
-  gender        String?
-  date_of_birth DateTime?
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
 
@@ -204,17 +200,4 @@ model user_notifications {
   @@map("user_notifications")
 }
 
-model user_notification_preferences {
-  id            String   @id @default(uuid()) @db.Uuid
-  user_id       String   @unique @db.Uuid
-  email_enabled Boolean  @default(true)
-  push_enabled  Boolean  @default(true)
-  sms_enabled   Boolean  @default(false)
-  order_updates Boolean  @default(true)
-  promotions    Boolean  @default(true)
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
-
-  @@map("user_notification_preferences")
-}
 

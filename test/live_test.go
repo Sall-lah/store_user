@@ -59,7 +59,7 @@ func TestLive_DatabaseAndRouterWorkflow(t *testing.T) {
 	kafkaMock := &kafka.MockProducer{}
 	svc := service.NewUserService(repo, orderMock, kafkaMock, cfg.KafkaTopicUserEvents)
 	profileHandler := handler.NewProfileHandler(svc)
-	server := router.NewRouter(cfg, profileHandler, limiter)
+	server := router.NewRouter(cfg, profileHandler, nil, nil, limiter)
 
 	// 4. Generate random test user UUID
 	testUserID := uuid.NewString()
@@ -90,7 +90,7 @@ func TestLive_DatabaseAndRouterWorkflow(t *testing.T) {
 	t.Logf("✓ Live PostgreSQL: Initial profile auto-created successfully for user %s", testUserID)
 
 	// STEP B: PUT /api/users/profile (Mutates record in live PostgreSQL)
-	updatePayload := `{"fullName":"Live Test User","phoneNumber":"+628123456789","bio":"Live PostgreSQL Verification","address":"Jakarta, ID","gender":"MALE"}`
+	updatePayload := `{"fullName":"Live Test User","phoneNumber":"+628123456789","address":"Jakarta, ID"}`
 	req2 := httptest.NewRequest(http.MethodPut, "/api/users/profile", bytes.NewBufferString(updatePayload))
 	req2.Header.Set("X-User-Id", testUserID)
 	rec2 := httptest.NewRecorder()
@@ -104,7 +104,7 @@ func TestLive_DatabaseAndRouterWorkflow(t *testing.T) {
 	if err := json.NewDecoder(rec2.Body).Decode(&p2); err != nil {
 		t.Fatalf("Failed to parse response JSON: %v", err)
 	}
-	if p2.FullName != "Live Test User" || *p2.PhoneNumber != "+628123456789" || *p2.Bio != "Live PostgreSQL Verification" {
+	if p2.FullName != "Live Test User" || *p2.PhoneNumber != "+628123456789" || *p2.Address != "Jakarta, ID" {
 		t.Errorf("Unexpected updated profile data in database: %+v", p2)
 	}
 	t.Logf("✓ Live PostgreSQL: Profile updated and persisted successfully")

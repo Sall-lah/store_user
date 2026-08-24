@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -169,49 +168,3 @@ func TestNotificationHandler_DeleteNotification(t *testing.T) {
 	}
 }
 
-func TestNotificationHandler_Preferences(t *testing.T) {
-	h, _ := setupTestNotificationHandler()
-	userID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
-
-	r := chi.NewRouter()
-	r.Use(middleware.AuthIdentity)
-	r.Get("/api/users/notifications/preferences", h.GetPreferences)
-	r.Put("/api/users/notifications/preferences", h.UpdatePreferences)
-
-	// 1. Get preferences
-	reqGet := httptest.NewRequest(http.MethodGet, "/api/users/notifications/preferences", nil)
-	reqGet.Header.Set("X-User-Id", userID)
-	recGet := httptest.NewRecorder()
-	r.ServeHTTP(recGet, reqGet)
-
-	if recGet.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got: %d", recGet.Code)
-	}
-
-	// 2. Update preferences
-	body := `{"emailEnabled":false,"smsEnabled":true}`
-	reqPut := httptest.NewRequest(http.MethodPut, "/api/users/notifications/preferences", bytes.NewBufferString(body))
-	reqPut.Header.Set("X-User-Id", userID)
-	recPut := httptest.NewRecorder()
-	r.ServeHTTP(recPut, reqPut)
-
-	if recPut.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK, got: %d", recPut.Code)
-	}
-
-	var pref service.NotificationPreferencesDTO
-	_ = json.NewDecoder(recPut.Body).Decode(&pref)
-	if pref.EmailEnabled || !pref.SMSEnabled {
-		t.Errorf("unexpected updated preferences: %+v", pref)
-	}
-
-	// 3. Bad JSON
-	reqBad := httptest.NewRequest(http.MethodPut, "/api/users/notifications/preferences", bytes.NewBufferString("invalid json"))
-	reqBad.Header.Set("X-User-Id", userID)
-	recBad := httptest.NewRecorder()
-	r.ServeHTTP(recBad, reqBad)
-
-	if recBad.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 Bad Request for malformed JSON, got: %d", recBad.Code)
-	}
-}

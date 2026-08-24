@@ -22,8 +22,6 @@ type NotificationRepository interface {
 	MarkAsRead(ctx context.Context, userID string, id string) (*NotificationRecord, error)
 	MarkAllAsRead(ctx context.Context, userID string) (int, error)
 	Delete(ctx context.Context, userID string, id string) error
-	GetPreferences(ctx context.Context, userID string) (*NotificationPreferencesRecord, error)
-	UpsertPreferences(ctx context.Context, userID string, params UpdateNotificationPreferencesParams) (*NotificationPreferencesRecord, error)
 	Create(ctx context.Context, item NotificationRecord) (*NotificationRecord, error)
 }
 
@@ -186,66 +184,6 @@ func (r *PrismaNotificationRepository) Delete(ctx context.Context, userID string
 	return nil
 }
 
-// GetPreferences fetches channel communication preferences, creating default preferences if none exist.
-// Why: Ensures callers always receive valid baseline preferences on first access.
-func (r *PrismaNotificationRepository) GetPreferences(ctx context.Context, userID string) (*NotificationPreferencesRecord, error) {
-	m, err := r.client.UserNotificationPreferences.FindUnique(
-		db.UserNotificationPreferences.UserID.Equals(userID),
-	).Exec(ctx)
-
-	if err != nil {
-		if db.IsErrNotFound(err) || errors.Is(err, db.ErrNotFound) {
-			// Auto-create baseline defaults
-			created, errCreate := r.client.UserNotificationPreferences.CreateOne(
-				db.UserNotificationPreferences.UserID.Set(userID),
-			).Exec(ctx)
-			if errCreate != nil {
-				return nil, fmt.Errorf("failed to create default notification preferences: %w", errCreate)
-			}
-			return mapPrismaPreferencesModel(created), nil
-		}
-		return nil, fmt.Errorf("failed to get notification preferences: %w", err)
-	}
-
-	return mapPrismaPreferencesModel(m), nil
-}
-
-// UpsertPreferences updates specific preference channels or initializes them if absent.
-// Why: Provides idempotent preference mutations without requiring multi-step existence checks.
-func (r *PrismaNotificationRepository) UpsertPreferences(ctx context.Context, userID string, params UpdateNotificationPreferencesParams) (*NotificationPreferencesRecord, error) {
-	var updateParams []db.UserNotificationPreferencesSetParam
-
-	if params.EmailEnabled != nil {
-		updateParams = append(updateParams, db.UserNotificationPreferences.EmailEnabled.Set(*params.EmailEnabled))
-	}
-	if params.PushEnabled != nil {
-		updateParams = append(updateParams, db.UserNotificationPreferences.PushEnabled.Set(*params.PushEnabled))
-	}
-	if params.SMSEnabled != nil {
-		updateParams = append(updateParams, db.UserNotificationPreferences.SmsEnabled.Set(*params.SMSEnabled))
-	}
-	if params.OrderUpdates != nil {
-		updateParams = append(updateParams, db.UserNotificationPreferences.OrderUpdates.Set(*params.OrderUpdates))
-	}
-	if params.Promotions != nil {
-		updateParams = append(updateParams, db.UserNotificationPreferences.Promotions.Set(*params.Promotions))
-	}
-
-	m, err := r.client.UserNotificationPreferences.UpsertOne(
-		db.UserNotificationPreferences.UserID.Equals(userID),
-	).Create(
-		db.UserNotificationPreferences.UserID.Set(userID),
-	).Update(
-		updateParams...,
-	).Exec(ctx)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to upsert notification preferences: %w", err)
-	}
-
-	return mapPrismaPreferencesModel(m), nil
-}
-
 // Create inserts a new notification record.
 // Why: Facilitates integration testing and internal event ingestion.
 func (r *PrismaNotificationRepository) Create(ctx context.Context, item NotificationRecord) (*NotificationRecord, error) {
@@ -293,19 +231,3 @@ func mapPrismaNotificationModel(m *db.UserNotificationsModel) *NotificationRecor
 	}
 }
 
-func mapPrismaPreferencesModel(m *db.UserNotificationPreferencesModel) *NotificationPreferencesRecord {
-	if m == nil {
-		return nil
-	}
-	return &NotificationPreferencesRecord{
-		ID:           m.ID,
-		UserID:       m.UserID,
-		EmailEnabled: m.EmailEnabled,
-		PushEnabled:  m.PushEnabled,
-		SMSEnabled:   m.SmsEnabled,
-		OrderUpdates: m.OrderUpdates,
-		Promotions:   m.Promotions,
-		CreatedAt:    time.Time(m.CreatedAt),
-		UpdatedAt:    time.Time(m.UpdatedAt),
-	}
-}

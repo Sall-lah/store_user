@@ -11,7 +11,6 @@ import (
 // Why: Enables fast, deterministic unit testing of notification services without live database engines.
 type MockNotificationRepository struct {
 	Notifications map[string]*NotificationRecord
-	Preferences   map[string]*NotificationPreferencesRecord
 
 	// Injected errors for testing failure handling
 	ErrList        error
@@ -19,8 +18,6 @@ type MockNotificationRepository struct {
 	ErrMarkRead    error
 	ErrMarkAllRead error
 	ErrDelete      error
-	ErrGetPref     error
-	ErrUpsertPref  error
 	ErrCreate      error
 }
 
@@ -29,7 +26,6 @@ type MockNotificationRepository struct {
 func NewMockNotificationRepository() *MockNotificationRepository {
 	return &MockNotificationRepository{
 		Notifications: make(map[string]*NotificationRecord),
-		Preferences:   make(map[string]*NotificationPreferencesRecord),
 	}
 }
 
@@ -137,56 +133,6 @@ func (m *MockNotificationRepository) Delete(ctx context.Context, userID string, 
 	return nil
 }
 
-// GetPreferences retrieves or initializes mock channel preferences.
-func (m *MockNotificationRepository) GetPreferences(ctx context.Context, userID string) (*NotificationPreferencesRecord, error) {
-	if m.ErrGetPref != nil {
-		return nil, m.ErrGetPref
-	}
-	p, exists := m.Preferences[userID]
-	if !exists {
-		now := time.Now().UTC()
-		p = &NotificationPreferencesRecord{
-			ID:           fmt.Sprintf("pref-%s", userID),
-			UserID:       userID,
-			EmailEnabled: true,
-			PushEnabled:  true,
-			SMSEnabled:   false,
-			OrderUpdates: true,
-			Promotions:   true,
-			CreatedAt:    now,
-			UpdatedAt:    now,
-		}
-		m.Preferences[userID] = p
-	}
-	return p, nil
-}
-
-// UpsertPreferences creates or mutates mock channel preferences.
-func (m *MockNotificationRepository) UpsertPreferences(ctx context.Context, userID string, params UpdateNotificationPreferencesParams) (*NotificationPreferencesRecord, error) {
-	if m.ErrUpsertPref != nil {
-		return nil, m.ErrUpsertPref
-	}
-	p, _ := m.GetPreferences(ctx, userID)
-	now := time.Now().UTC()
-
-	if params.EmailEnabled != nil {
-		p.EmailEnabled = *params.EmailEnabled
-	}
-	if params.PushEnabled != nil {
-		p.PushEnabled = *params.PushEnabled
-	}
-	if params.SMSEnabled != nil {
-		p.SMSEnabled = *params.SMSEnabled
-	}
-	if params.OrderUpdates != nil {
-		p.OrderUpdates = *params.OrderUpdates
-	}
-	if params.Promotions != nil {
-		p.Promotions = *params.Promotions
-	}
-	p.UpdatedAt = now
-	return p, nil
-}
 
 // Create inserts a mock notification into memory.
 func (m *MockNotificationRepository) Create(ctx context.Context, item NotificationRecord) (*NotificationRecord, error) {

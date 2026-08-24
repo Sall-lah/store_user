@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -178,44 +177,3 @@ func (h *NotificationHandler) DeleteNotification(w http.ResponseWriter, r *http.
 	})
 }
 
-// GetPreferences handles GET /api/users/notifications/preferences.
-// Why: Retrieves user communication channel settings.
-func (h *NotificationHandler) GetPreferences(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
-	}
-
-	dto, err := h.svc.GetPreferences(r.Context(), userID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get notification preferences"})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, dto)
-}
-
-// UpdatePreferences handles PUT /api/users/notifications/preferences.
-// Why: Mutates user communication channel settings.
-func (h *NotificationHandler) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserID(r.Context())
-	if userID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
-	}
-
-	var req service.UpdateNotificationPreferencesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed JSON payload"})
-		return
-	}
-
-	dto, err := h.svc.UpdatePreferences(r.Context(), userID, req)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update notification preferences"})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, dto)
-}

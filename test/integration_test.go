@@ -44,7 +44,7 @@ func setupTestEnvironment() *testEnvironment {
 
 	svc := service.NewUserService(repo, orderClient, kafkaMock, cfg.KafkaTopicUserEvents)
 	h := handler.NewProfileHandler(svc)
-	r := router.NewRouter(cfg, h, nil)
+	r := router.NewRouter(cfg, h, nil, nil, nil)
 
 	return &testEnvironment{
 		server:      r,
@@ -58,44 +58,65 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 	env := setupTestEnvironment()
 	userID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
 
-	// 1. Initial Profile Read (Auto-initialization)
-	req1 := httptest.NewRequest(http.MethodGet, "/api/users/profile", nil)
-	req1.Header.Set("X-User-Id", userID)
-	rec1 := httptest.NewRecorder()
-	env.server.ServeHTTP(rec1, req1)
+	// 1. Initial User Creation via REST POST /api/users -> Expect 201 Created
+	createPayload := `{"fullName":"Budi Initial","phoneNumber":"+628123456789","address":"Jl. Sudirman"}`
+	reqCreate := httptest.NewRequest(http.MethodPost, "/api/users", bytes.NewBufferString(createPayload))
+	reqCreate.Header.Set("X-User-Id", userID)
+	recCreate := httptest.NewRecorder()
+	env.server.ServeHTTP(recCreate, reqCreate)
 
-	if rec1.Code != http.StatusOK {
-		t.Fatalf("Step 1 failed: expected 200 OK, got: %d", rec1.Code)
+	if recCreate.Code != http.StatusCreated {
+		t.Fatalf("Step 1 failed: expected 201 Created, got: %d (body: %s)", recCreate.Code, recCreate.Body.String())
 	}
 
-	var p1 repository.UserProfile
-	if err := json.NewDecoder(rec1.Body).Decode(&p1); err != nil {
+	var pCreated repository.UserProfile
+	if err := json.NewDecoder(recCreate.Body).Decode(&pCreated); err != nil {
 		t.Fatalf("Step 1 failed: decode error %v", err)
 	}
-	if p1.UserID != userID || p1.FullName != "User" {
-		t.Errorf("Step 1 failed: unexpected profile baseline: %+v", p1)
+	if pCreated.UserID != userID || pCreated.FullName != "Budi Initial" {
+		t.Errorf("Step 1 failed: unexpected created profile: %+v", pCreated)
 	}
 
-	// 2. Profile Update
-	updatePayload := `{"fullName":"Budi Pratama","phoneNumber":"+628123456789","bio":"Software Engineer","address":"Jakarta, Indonesia","gender":"MALE"}`
+	// 2. Idempotent Replay via POST /api/users -> Expect 200 OK
+	reqReplay := httptest.NewRequest(http.MethodPost, "/api/users", bytes.NewBufferString(createPayload))
+	reqReplay.Header.Set("X-User-Id", userID)
+	recReplay := httptest.NewRecorder()
+	env.server.ServeHTTP(recReplay, reqReplay)
+
+	if recReplay.Code != http.StatusOK {
+		t.Fatalf("Step 2 failed: expected 200 OK for idempotent creation, got: %d", recReplay.Code)
+	}
+
+	// 3. Profile Read GET /api/users/profile
+	reqRead := httptest.NewRequest(http.MethodGet, "/api/users/profile", nil)
+	reqRead.Header.Set("X-User-Id", userID)
+	recRead := httptest.NewRecorder()
+	env.server.ServeHTTP(recRead, reqRead)
+
+	if recRead.Code != http.StatusOK {
+		t.Fatalf("Step 3 failed: expected 200 OK, got: %d", recRead.Code)
+	}
+
+	// 4. Profile Update PUT /api/users/profile
+	updatePayload := `{"fullName":"Budi Pratama","phoneNumber":"+628123456789","address":"Jakarta, Indonesia"}`
 	req2 := httptest.NewRequest(http.MethodPut, "/api/users/profile", bytes.NewBufferString(updatePayload))
 	req2.Header.Set("X-User-Id", userID)
 	rec2 := httptest.NewRecorder()
 	env.server.ServeHTTP(rec2, req2)
 
 	if rec2.Code != http.StatusOK {
-		t.Fatalf("Step 2 failed: expected 200 OK, got: %d", rec2.Code)
+		t.Fatalf("Step 4 failed: expected 200 OK, got: %d", rec2.Code)
 	}
 
 	var p2 repository.UserProfile
 	if err := json.NewDecoder(rec2.Body).Decode(&p2); err != nil {
-		t.Fatalf("Step 2 failed: decode error %v", err)
+		t.Fatalf("Step 4 failed: decode error %v", err)
 	}
 	if p2.FullName != "Budi Pratama" || *p2.PhoneNumber != "+628123456789" || *p2.Address != "Jakarta, Indonesia" {
-		t.Errorf("Step 2 failed: unexpected updated data: %+v", p2)
+		t.Errorf("Step 4 failed: unexpected updated data: %+v", p2)
 	}
 
-	// 3. Attempt Account Deletion when User has Active Orders in store_order -> Expect 409 Conflict
+	// 5. Attempt Account Deletion when User has Active Orders in store_order -> Expect 409 Conflict
 	env.orderClient.CheckActiveOrdersFunc = func(ctx context.Context, uid string) (*orderv1.CheckActiveOrdersResponse, error) {
 		return &orderv1.CheckActiveOrdersResponse{
 			HasActiveOrders:  true,
@@ -118,19 +139,19 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 	env.server.ServeHTTP(rec3, req3)
 
 	if rec3.Code != http.StatusConflict {
-		t.Fatalf("Step 3 failed: expected 409 Conflict, got: %d (body: %s)", rec3.Code, rec3.Body.String())
+		t.Fatalf("Step 5 failed: expected 409 Conflict, got: %d (body: %s)", rec3.Code, rec3.Body.String())
 	}
 
 	// Profile record must still exist in DB
 	pCheck, err := env.repo.GetByUserID(context.Background(), userID)
 	if err != nil || pCheck == nil {
-		t.Fatalf("Step 3 failed: profile was improperly deleted on conflict!")
+		t.Fatalf("Step 5 failed: profile was improperly deleted on conflict!")
 	}
 	if len(env.kafkaMock.PublishedMessages) != 0 {
-		t.Fatalf("Step 3 failed: kafka event was improperly published on conflict!")
+		t.Fatalf("Step 5 failed: kafka event was improperly published on conflict!")
 	}
 
-	// 4. Attempt Account Deletion when Order Service gRPC is down -> Expect 503 Service Unavailable
+	// 6. Attempt Account Deletion when Order Service gRPC is down -> Expect 503 Service Unavailable
 	env.orderClient.CheckActiveOrdersFunc = func(ctx context.Context, uid string) (*orderv1.CheckActiveOrdersResponse, error) {
 		return nil, errors.New("rpc error: code = Unavailable desc = connection refused")
 	}
@@ -141,10 +162,10 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 	env.server.ServeHTTP(rec4, req4)
 
 	if rec4.Code != http.StatusServiceUnavailable {
-		t.Fatalf("Step 4 failed: expected 503 Service Unavailable, got: %d", rec4.Code)
+		t.Fatalf("Step 6 failed: expected 503 Service Unavailable, got: %d", rec4.Code)
 	}
 
-	// 5. Successful Account Deletion (Active orders cleared) -> Expect 200 OK, DB deleted, Kafka emitted
+	// 7. Successful Account Deletion (Active orders cleared) -> Expect 200 OK, DB deleted, Kafka emitted
 	env.orderClient.CheckActiveOrdersFunc = func(ctx context.Context, uid string) (*orderv1.CheckActiveOrdersResponse, error) {
 		return &orderv1.CheckActiveOrdersResponse{
 			HasActiveOrders:  false,
@@ -159,32 +180,32 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 	env.server.ServeHTTP(rec5, req5)
 
 	if rec5.Code != http.StatusOK {
-		t.Fatalf("Step 5 failed: expected 200 OK, got: %d (body: %s)", rec5.Code, rec5.Body.String())
+		t.Fatalf("Step 7 failed: expected 200 OK, got: %d (body: %s)", rec5.Code, rec5.Body.String())
 	}
 
 	// Verify hard-deletion from DB
 	_, err = env.repo.GetByUserID(context.Background(), userID)
 	if err != repository.ErrNotFound {
-		t.Errorf("Step 5 failed: profile record still exists in DB: %v", err)
+		t.Errorf("Step 7 failed: profile record still exists in DB: %v", err)
 	}
 
 	// Verify domain event emitted to Kafka topic 'user.events'
 	if len(env.kafkaMock.PublishedMessages) != 1 {
-		t.Fatalf("Step 5 failed: expected 1 published Kafka message, got: %d", len(env.kafkaMock.PublishedMessages))
+		t.Fatalf("Step 7 failed: expected 1 published Kafka message, got: %d", len(env.kafkaMock.PublishedMessages))
 	}
 	msg := env.kafkaMock.PublishedMessages[0]
 	if msg.Topic != "user.events" {
-		t.Errorf("Step 5 failed: expected topic user.events, got: %s", msg.Topic)
+		t.Errorf("Step 7 failed: expected topic user.events, got: %s", msg.Topic)
 	}
 	if msg.Key != userID {
-		t.Errorf("Step 5 failed: expected message key %s, got: %s", userID, msg.Key)
+		t.Errorf("Step 7 failed: expected message key %s, got: %s", userID, msg.Key)
 	}
 
 	var event kafka.LifecycleEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
-		t.Fatalf("Step 5 failed: invalid kafka event JSON: %v", err)
+		t.Fatalf("Step 7 failed: invalid kafka event JSON: %v", err)
 	}
 	if event.Event != "user.deleted" || event.UserID != userID || event.Reason != "moving to another platform" {
-		t.Errorf("Step 5 failed: unexpected event payload: %+v", event)
+		t.Errorf("Step 7 failed: unexpected event payload: %+v", event)
 	}
 }

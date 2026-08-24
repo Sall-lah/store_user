@@ -56,6 +56,10 @@ func NewRouter(
 	mountUserRoutes := func(sub chi.Router) {
 		sub.Use(middleware.AuthIdentity)
 
+		// Profile Creation: e.g. 15 req/min
+		sub.With(middleware.RateLimit(limiter, 15, cfg.RateLimitWindow, "ratelimit:user:profile:create")).
+			Post("/", profileHandler.CreateProfile)
+
 		// Profile Read: e.g. 60 req/min
 		sub.With(middleware.RateLimit(limiter, cfg.RateLimitMaxRequests, cfg.RateLimitWindow, "ratelimit:user:profile:read")).
 			Get("/profile", profileHandler.GetProfile)
@@ -68,15 +72,8 @@ func NewRouter(
 		sub.With(middleware.RateLimit(limiter, cfg.RateLimitDeleteMaxRequests, cfg.RateLimitDeleteWindow, "ratelimit:user:account:delete")).
 			Delete("/account", profileHandler.DeleteAccount)
 
-		// In-App Notifications & Preferences
+		// In-App Notifications
 		if notifHandler != nil {
-			// Notification Preferences: 60 req/min read, 30 req/min update
-			sub.With(middleware.RateLimit(limiter, cfg.RateLimitMaxRequests, cfg.RateLimitWindow, "ratelimit:user:notif:pref:read")).
-				Get("/notifications/preferences", notifHandler.GetPreferences)
-
-			sub.With(middleware.RateLimit(limiter, 30, cfg.RateLimitWindow, "ratelimit:user:notif:pref:update")).
-				Put("/notifications/preferences", notifHandler.UpdatePreferences)
-
 			// Notification Feed: 60 req/min read
 			sub.With(middleware.RateLimit(limiter, cfg.RateLimitMaxRequests, cfg.RateLimitWindow, "ratelimit:user:notif:read")).
 				Get("/notifications", notifHandler.ListNotifications)

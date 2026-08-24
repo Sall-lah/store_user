@@ -25,4 +25,4 @@ The system SHALL serve an interactive Swagger UI web interface at `GET /docs` an
 
 #### Scenario: Complete API coverage in documentation
 - **WHEN** the Swagger UI or OpenAPI document is inspected
-- **THEN** all endpoints (`/health`, `/api/users/profile`, `/api/users/account`, `/api/users/notifications`, `/api/users/notifications/preferences`, and documentation routes) are fully documented with request/response schemas, security headers (`X-User-Id`), and status codes.
+- **THEN** all endpoints (`/health`, `/api/users/profile`, `/api/users/account`, `/api/users/notifications`, and documentation routes) are fully documented with request/response schemas, security headers (`X-User-Id`), and status codes.

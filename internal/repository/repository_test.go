@@ -38,7 +38,17 @@ func TestMockUserProfileRepository(t *testing.T) {
 		t.Errorf("expected name Alice, got: %s", p2.FullName)
 	}
 
-	// 4. Hard Delete
+	// 4. Create new profile
+	addr := "123 Main St"
+	pCreated, err := repo.Create(ctx, "usr_2", "Bob", &phone, &addr)
+	if err != nil {
+		t.Fatalf("unexpected create error: %v", err)
+	}
+	if pCreated.FullName != "Bob" || *pCreated.Address != "123 Main St" {
+		t.Errorf("unexpected created profile: %+v", pCreated)
+	}
+
+	// 5. Hard Delete
 	if err := repo.HardDeleteByUserID(ctx, "usr_1"); err != nil {
 		t.Fatalf("unexpected delete error: %v", err)
 	}
@@ -48,3 +58,4 @@ func TestMockUserProfileRepository(t *testing.T) {
 		t.Errorf("expected ErrNotFound after deletion, got: %v", err)
 	}
 }
+

@@ -22,6 +22,59 @@ func NewProfileHandler(svc service.UserService) *ProfileHandler {
 	return &ProfileHandler{svc: svc}
 }
 
+// CreateProfile handles POST /api/users.
+// Why: Enables authenticated clients to provision their initial user profile idempotently using gateway identity headers.
+func (h *ProfileHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	if userID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	var req service.CreateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "malformed JSON payload"})
+		return
+	}
+
+	// Sanitize and validate inputs
+	req.UserID = userID
+	req.FullName = validator.SanitizeText(req.FullName)
+	if req.FullName == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "fullName cannot be empty"})
+		return
+	}
+
+	if req.Address != nil {
+		cleanAddr := validator.SanitizeText(*req.Address)
+		req.Address = &cleanAddr
+	}
+
+	if req.PhoneNumber != nil && *req.PhoneNumber != "" {
+		if !validator.ValidatePhoneNumber(*req.PhoneNumber) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid phone number format"})
+			return
+		}
+	}
+
+	result, err := h.svc.CreateUserProfile(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, service.ErrValidationFailed) || errors.Is(err, service.ErrInvalidUserID) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user profile"})
+		return
+	}
+
+	statusCode := http.StatusCreated
+	if !result.IsCreated {
+		statusCode = http.StatusOK
+	}
+
+	writeJSON(w, statusCode, result.Profile)
+}
+
 // GetProfile handles GET /api/v1/users/profile.
 // Why: Returns the authenticated user's profile details.
 func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
@@ -64,10 +117,6 @@ func (h *ProfileHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		cleanName := validator.SanitizeText(*req.FullName)
 		req.FullName = &cleanName
 	}
-	if req.Bio != nil {
-		cleanBio := validator.SanitizeText(*req.Bio)
-		req.Bio = &cleanBio
-	}
 	if req.Address != nil {
 		cleanAddr := validator.SanitizeText(*req.Address)
 		req.Address = &cleanAddr
@@ -75,12 +124,6 @@ func (h *ProfileHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if req.PhoneNumber != nil && *req.PhoneNumber != "" {
 		if !validator.ValidatePhoneNumber(*req.PhoneNumber) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid phone number format"})
-			return
-		}
-	}
-	if req.Gender != nil && *req.Gender != "" {
-		if !validator.ValidateGender(*req.Gender) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid gender value; must be MALE, FEMALE, OTHER, or PREFER_NOT_TO_SAY"})
 			return
 		}
 	}

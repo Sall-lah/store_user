@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,8 +52,17 @@ func TestRouterRoutes(t *testing.T) {
 		}
 	}
 
-	// 3. Profile with auth header
+	// 3. User creation route with auth header
 	validUUID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+	reqCreate := httptest.NewRequest(http.MethodPost, "/api/users", bytes.NewBufferString(`{"fullName":"Bob"}`))
+	reqCreate.Header.Set("X-User-Id", validUUID)
+	recCreate := httptest.NewRecorder()
+	r.ServeHTTP(recCreate, reqCreate)
+	if recCreate.Code != http.StatusCreated {
+		t.Errorf("expected 201 for POST /api/users, got: %d", recCreate.Code)
+	}
+
+	// 4. Profile with auth header
 	req2 := httptest.NewRequest(http.MethodGet, "/api/users/profile", nil)
 	req2.Header.Set("X-User-Id", validUUID)
 	rec2 := httptest.NewRecorder()
@@ -70,13 +80,13 @@ func TestRouterRoutes(t *testing.T) {
 		t.Errorf("expected 200 for /api/users/notifications, got: %d", recNotif.Code)
 	}
 
-	// 5. Notification preferences route
+	// 5. Notification preferences route is removed and returns 404 Not Found
 	reqPref := httptest.NewRequest(http.MethodGet, "/api/users/notifications/preferences", nil)
 	reqPref.Header.Set("X-User-Id", validUUID)
 	recPref := httptest.NewRecorder()
 	r.ServeHTTP(recPref, reqPref)
-	if recPref.Code != http.StatusOK {
-		t.Errorf("expected 200 for /api/users/notifications/preferences, got: %d", recPref.Code)
+	if recPref.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for removed /api/users/notifications/preferences, got: %d", recPref.Code)
 	}
 
 	// 6. Old v1 route should return 404 Not Found

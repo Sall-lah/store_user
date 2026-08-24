@@ -131,26 +131,4 @@ func TestMockNotificationRepository_Lifecycle(t *testing.T) {
 	if !errors.Is(err, ErrNotificationNotFound) {
 		t.Errorf("expected ErrNotificationNotFound after deletion, got %v", err)
 	}
-
-	// 8. Test Preferences
-	pref, err := repo.GetPreferences(ctx, userID)
-	if err != nil {
-		t.Fatalf("unexpected error getting default preferences: %v", err)
-	}
-	if !pref.EmailEnabled || !pref.PushEnabled || pref.SMSEnabled {
-		t.Errorf("unexpected default preferences: %+v", pref)
-	}
-
-	emailOptOut := false
-	smsOptIn := true
-	updatedPref, err := repo.UpsertPreferences(ctx, userID, UpdateNotificationPreferencesParams{
-		EmailEnabled: &emailOptOut,
-		SMSEnabled:   &smsOptIn,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error updating preferences: %v", err)
-	}
-	if updatedPref.EmailEnabled || !updatedPref.SMSEnabled {
-		t.Errorf("preferences update not reflected: %+v", updatedPref)
-	}
 }

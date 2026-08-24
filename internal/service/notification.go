@@ -18,8 +18,6 @@ type NotificationService interface {
 	MarkAsRead(ctx context.Context, userID string, id string) (*NotificationDTO, error)
 	MarkAllAsRead(ctx context.Context, userID string) (*MarkAllReadResponse, error)
 	DeleteNotification(ctx context.Context, userID string, id string) error
-	GetPreferences(ctx context.Context, userID string) (*NotificationPreferencesDTO, error)
-	UpdatePreferences(ctx context.Context, userID string, req UpdateNotificationPreferencesRequest) (*NotificationPreferencesDTO, error)
 }
 
 // NotificationServiceImpl implements NotificationService with repository dependency.
@@ -165,44 +163,6 @@ func (s *NotificationServiceImpl) DeleteNotification(ctx context.Context, userID
 	return nil
 }
 
-// GetPreferences retrieves user channel preferences.
-// Why: Returns configured channels or baseline defaults for UI notification settings.
-func (s *NotificationServiceImpl) GetPreferences(ctx context.Context, userID string) (*NotificationPreferencesDTO, error) {
-	if strings.TrimSpace(userID) == "" {
-		return nil, ErrInvalidUserID
-	}
-
-	rec, err := s.repo.GetPreferences(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get notification preferences: %w", err)
-	}
-
-	dto := mapRepoPreferencesToDTO(*rec)
-	return &dto, nil
-}
-
-// UpdatePreferences mutates communication channel preferences.
-// Why: Persists user-defined notification channels with granular boolean toggles.
-func (s *NotificationServiceImpl) UpdatePreferences(ctx context.Context, userID string, req UpdateNotificationPreferencesRequest) (*NotificationPreferencesDTO, error) {
-	if strings.TrimSpace(userID) == "" {
-		return nil, ErrInvalidUserID
-	}
-
-	rec, err := s.repo.UpsertPreferences(ctx, userID, repository.UpdateNotificationPreferencesParams{
-		EmailEnabled: req.EmailEnabled,
-		PushEnabled:  req.PushEnabled,
-		SMSEnabled:   req.SMSEnabled,
-		OrderUpdates: req.OrderUpdates,
-		Promotions:   req.Promotions,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to update notification preferences: %w", err)
-	}
-
-	dto := mapRepoPreferencesToDTO(*rec)
-	return &dto, nil
-}
-
 func mapRepoNotificationToDTO(r repository.NotificationRecord) NotificationDTO {
 	return NotificationDTO{
 		ID:        r.ID,
@@ -217,14 +177,3 @@ func mapRepoNotificationToDTO(r repository.NotificationRecord) NotificationDTO {
 	}
 }
 
-func mapRepoPreferencesToDTO(r repository.NotificationPreferencesRecord) NotificationPreferencesDTO {
-	return NotificationPreferencesDTO{
-		UserID:       r.UserID,
-		EmailEnabled: r.EmailEnabled,
-		PushEnabled:  r.PushEnabled,
-		SMSEnabled:   r.SMSEnabled,
-		OrderUpdates: r.OrderUpdates,
-		Promotions:   r.Promotions,
-		UpdatedAt:    r.UpdatedAt,
-	}
-}

@@ -1,7 +1,7 @@
 # User Notifications
 
 ## Purpose
-Provides management of in-app user notification feeds, read/unread state updates, deletion, and channel communication preferences.
+Provides management of in-app user notification feeds, read/unread state updates, and deletion.
 
 ## Requirements
 
@@ -41,18 +41,3 @@ The system SHALL provide an endpoint `DELETE /api/users/notifications/{id}` allo
 #### Scenario: Deleting non-existent or foreign notification
 - **WHEN** an authenticated user calls `DELETE /api/users/notifications/{id}` for an ID not belonging to the user
 - **THEN** the system returns HTTP 404 Not Found without modifying any records.
-
-### Requirement: Notification Preferences Management
-The system SHALL provide endpoints `GET /api/users/notifications/preferences` and `PUT /api/users/notifications/preferences` to inspect and update communication channel preferences (such as email, push, SMS, order updates, promotional notifications).
-
-#### Scenario: Fetch user notification preferences
-- **WHEN** an authenticated user calls `GET /api/users/notifications/preferences`
-- **THEN** the system returns HTTP 200 OK with current channel preferences (or initializes baseline defaults if first access).
-
-#### Scenario: Update user notification preferences
-- **WHEN** an authenticated user calls `PUT /api/users/notifications/preferences` with valid boolean channel flags
-- **THEN** the system updates the preferences and returns HTTP 200 OK with the updated preferences.
-
-#### Scenario: Update preferences with invalid payload
-- **WHEN** a user submits a malformed JSON payload to `PUT /api/users/notifications/preferences`
-- **THEN** the system returns HTTP 400 Bad Request with descriptive error details.

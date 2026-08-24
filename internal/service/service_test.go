@@ -26,6 +26,68 @@ func TestGetProfile_AutoCreateForNewUser(t *testing.T) {
 	}
 }
 
+func TestCreateUserProfile_SuccessAndIdempotent(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	svc := NewUserService(repo, nil, nil, "user.events")
+	ctx := context.Background()
+
+	phone := "+628123456789"
+	req := CreateProfileRequest{
+		UserID:      "usr_100",
+		FullName:    "Charlie",
+		Email:       "charlie@example.com",
+		PhoneNumber: &phone,
+	}
+
+	// 1. Initial Creation (is_created = true)
+	res1, err := svc.CreateUserProfile(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected create error: %v", err)
+	}
+	if !res1.IsCreated {
+		t.Errorf("expected is_created to be true for new user, got false")
+	}
+	if res1.Profile == nil || res1.Profile.FullName != "Charlie" {
+		t.Errorf("unexpected profile result: %+v", res1.Profile)
+	}
+
+	// 2. Idempotent Replay (is_created = false, returns existing record)
+	res2, err := svc.CreateUserProfile(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected replay error: %v", err)
+	}
+	if res2.IsCreated {
+		t.Errorf("expected is_created to be false on replay, got true")
+	}
+	if res2.Profile.ID != res1.Profile.ID {
+		t.Errorf("expected same profile ID on replay, got %s vs %s", res2.Profile.ID, res1.Profile.ID)
+	}
+}
+
+func TestCreateUserProfile_Validation(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	svc := NewUserService(repo, nil, nil, "user.events")
+	ctx := context.Background()
+
+	// Empty userID
+	_, err := svc.CreateUserProfile(ctx, CreateProfileRequest{
+		UserID:   "",
+		FullName: "Charlie",
+	})
+	if !errors.Is(err, ErrInvalidUserID) {
+		t.Errorf("expected ErrInvalidUserID, got: %v", err)
+	}
+
+	// Empty fullName
+	_, err = svc.CreateUserProfile(ctx, CreateProfileRequest{
+		UserID:   "usr_100",
+		FullName: "   ",
+	})
+	if !errors.Is(err, ErrValidationFailed) {
+		t.Errorf("expected ErrValidationFailed, got: %v", err)
+	}
+}
+
 func TestUpdateProfile_Validation(t *testing.T) {
 	repo := repository.NewMockUserProfileRepository()
 	svc := NewUserService(repo, nil, nil, "user.events")
@@ -40,15 +102,15 @@ func TestUpdateProfile_Validation(t *testing.T) {
 
 	// 2. Valid update
 	name := "Bob"
-	bio := "Software Engineer"
+	addr := "456 Market St"
 	p, err := svc.UpdateProfile(ctx, "usr_1", UpdateProfileRequest{
 		FullName: &name,
-		Bio:      &bio,
+		Address:  &addr,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if p.FullName != "Bob" || *p.Bio != "Software Engineer" {
+	if p.FullName != "Bob" || *p.Address != "456 Market St" {
 		t.Errorf("unexpected profile: %+v", p)
 	}
 }

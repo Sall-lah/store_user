@@ -152,46 +152,7 @@ func TestDeleteNotification(t *testing.T) {
 
 	// 3. Delete again returns not found
 	if err := svc.DeleteNotification(ctx, userID, n.ID); !errors.Is(err, ErrNotificationNotFound) {
-		t.Errorf("expected ErrNotificationNotFound after deletion, got: %v", err)
+		t.Errorf("expected ErrNotificationNotFound after deletion, got %v", err)
 	}
 }
 
-func TestNotificationPreferences(t *testing.T) {
-	repo := repository.NewMockNotificationRepository()
-	svc := NewNotificationService(repo)
-	ctx := context.Background()
-	userID := "usr_test_5"
-
-	// 1. Get default preferences
-	pref, err := svc.GetPreferences(ctx, userID)
-	if err != nil {
-		t.Fatalf("unexpected error getting default preferences: %v", err)
-	}
-	if !pref.EmailEnabled || !pref.PushEnabled || pref.SMSEnabled {
-		t.Errorf("unexpected initial preferences: %+v", pref)
-	}
-
-	// 2. Update preferences
-	emailFalse := false
-	smsTrue := true
-	updated, err := svc.UpdatePreferences(ctx, userID, UpdateNotificationPreferencesRequest{
-		EmailEnabled: &emailFalse,
-		SMSEnabled:   &smsTrue,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error updating preferences: %v", err)
-	}
-	if updated.EmailEnabled || !updated.SMSEnabled {
-		t.Errorf("unexpected updated preferences: %+v", updated)
-	}
-
-	// 3. Validation
-	_, err = svc.GetPreferences(ctx, "")
-	if !errors.Is(err, ErrInvalidUserID) {
-		t.Errorf("expected ErrInvalidUserID, got: %v", err)
-	}
-	_, err = svc.UpdatePreferences(ctx, "", UpdateNotificationPreferencesRequest{})
-	if !errors.Is(err, ErrInvalidUserID) {
-		t.Errorf("expected ErrInvalidUserID, got: %v", err)
-	}
-}

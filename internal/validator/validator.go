@@ -36,13 +36,3 @@ func ValidatePhoneNumber(phone string) bool {
 	return phoneRegex.MatchString(trimmed)
 }
 
-// ValidateGender checks if a provided gender string matches accepted values.
-// Why: Normalizes categorical profile demographics.
-func ValidateGender(gender string) bool {
-	switch strings.ToUpper(strings.TrimSpace(gender)) {
-	case "MALE", "FEMALE", "OTHER", "PREFER_NOT_TO_SAY":
-		return true
-	default:
-		return false
-	}
-}

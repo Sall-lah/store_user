@@ -1,0 +1,24 @@
+## MODIFIED Requirements
+
+### Requirement: Redis Sliding-Window Rate Limiting
+The system SHALL enforce rate limits using Redis Sorted Sets and Lua scripts. The rate limiter MUST apply tiered quotas per endpoint and user identity (userId).
+
+#### Scenario: Rate limit exceeded on profile read
+- **WHEN** a user exceeds 60 requests within a 1-minute window on GET /api/users/profile
+- **THEN** the system rejects subsequent requests with HTTP 429 Too Many Requests and includes Retry-After header.
+
+#### Scenario: Rate limit exceeded on account deletion
+- **WHEN** a user exceeds 3 deletion requests within a 1-minute window on DELETE /api/users/account
+- **THEN** the system rejects subsequent deletion attempts with HTTP 429 Too Many Requests.
+
+#### Scenario: Rate limit exceeded on notification read
+- **WHEN** a user exceeds 60 requests within a 1-minute window on GET /api/users/notifications
+- **THEN** the system rejects subsequent requests with HTTP 429 Too Many Requests and includes Retry-After header.
+
+#### Scenario: Rate limit exceeded on notification mutation
+- **WHEN** a user exceeds 30 mutation requests within a 1-minute window on PATCH /api/users/notifications/{id}/read, POST /api/users/notifications/read-all, or DELETE /api/users/notifications/{id}
+- **THEN** the system rejects subsequent requests with HTTP 429 Too Many Requests and includes Retry-After header.
+
+#### Scenario: Redis failure degradation
+- **WHEN** the Redis cluster is unreachable during a rate limit evaluation
+- **THEN** the limiter degrades gracefully (fails open) to allow valid user traffic while logging a warning.

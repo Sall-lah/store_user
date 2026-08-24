@@ -36,31 +36,10 @@ type NotificationListResponse struct {
 	TotalPages  int               `json:"totalPages"`
 }
 
-// NotificationPreferencesDTO represents channel preferences returned to API callers.
-// Why: Standardizes user notification settings across UI preference toggles.
-type NotificationPreferencesDTO struct {
-	UserID       string    `json:"userId"`
-	EmailEnabled bool      `json:"emailEnabled"`
-	PushEnabled  bool      `json:"pushEnabled"`
-	SMSEnabled   bool      `json:"smsEnabled"`
-	OrderUpdates bool      `json:"orderUpdates"`
-	Promotions   bool      `json:"promotions"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-}
-
-// UpdateNotificationPreferencesRequest represents the JSON request payload for altering channel preferences.
-// Why: Allows partial updates to user notification flags without overwriting unmodified channels.
-type UpdateNotificationPreferencesRequest struct {
-	EmailEnabled *bool `json:"emailEnabled,omitempty"`
-	PushEnabled  *bool `json:"pushEnabled,omitempty"`
-	SMSEnabled   *bool `json:"smsEnabled,omitempty"`
-	OrderUpdates *bool `json:"orderUpdates,omitempty"`
-	Promotions   *bool `json:"promotions,omitempty"`
-}
-
 // MarkAllReadResponse conveys the outcome of batch-marking notifications as read.
 // Why: Returns the number of affected notification records for immediate client badge synchronization.
 type MarkAllReadResponse struct {
 	UpdatedCount int    `json:"updatedCount"`
 	Message      string `json:"message"`
 }
+

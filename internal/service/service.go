@@ -16,6 +16,7 @@ import (
 // Why: Encapsulates transactional boundaries, cross-service orchestrations, and data validation rules.
 type UserService interface {
 	GetProfile(ctx context.Context, userID string) (*repository.UserProfile, error)
+	CreateUserProfile(ctx context.Context, req CreateProfileRequest) (*CreateProfileResult, error)
 	UpdateProfile(ctx context.Context, userID string, req UpdateProfileRequest) (*repository.UserProfile, error)
 	DeleteAccount(ctx context.Context, userID string, req DeleteAccountRequest) error
 }
@@ -69,8 +70,44 @@ func (s *UserServiceImpl) GetProfile(ctx context.Context, userID string) (*repos
 	return profile, nil
 }
 
+// CreateUserProfile idempotently provisions a personal profile for a user.
+// Why: Provides a fast, synchronous provisioning flow for auth OTP verification while preventing race condition overwrites.
+func (s *UserServiceImpl) CreateUserProfile(ctx context.Context, req CreateProfileRequest) (*CreateProfileResult, error) {
+	if strings.TrimSpace(req.UserID) == "" {
+		return nil, ErrInvalidUserID
+	}
+	if strings.TrimSpace(req.FullName) == "" {
+		return nil, fmt.Errorf("%w: fullName cannot be empty", ErrValidationFailed)
+	}
+
+	// 1. Check if profile already exists (idempotent replay)
+	existing, err := s.repo.GetByUserID(ctx, req.UserID)
+	if err == nil && existing != nil {
+		return &CreateProfileResult{
+			Profile:   existing,
+			IsCreated: false,
+			Message:   "User profile already exists",
+		}, nil
+	}
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return nil, fmt.Errorf("failed to inspect user profile existence: %w", err)
+	}
+
+	// 2. Insert new profile
+	created, err := s.repo.Create(ctx, req.UserID, req.FullName, req.PhoneNumber, req.Address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user profile: %w", err)
+	}
+
+	return &CreateProfileResult{
+		Profile:   created,
+		IsCreated: true,
+		Message:   "User profile created successfully",
+	}, nil
+}
+
 // UpdateProfile validates incoming fields and updates the user's profile attributes.
-// Why: Enforces field sanity constraints (e.g. max string lengths) before persisting mutations.
+// Why: Enforces field sanity constraints (e.g. non-empty full name) before persisting mutations.
 func (s *UserServiceImpl) UpdateProfile(ctx context.Context, userID string, req UpdateProfileRequest) (*repository.UserProfile, error) {
 	if strings.TrimSpace(userID) == "" {
 		return nil, ErrInvalidUserID
@@ -79,18 +116,11 @@ func (s *UserServiceImpl) UpdateProfile(ctx context.Context, userID string, req 
 	if req.FullName != nil && strings.TrimSpace(*req.FullName) == "" {
 		return nil, fmt.Errorf("%w: fullName cannot be empty", ErrValidationFailed)
 	}
-	if req.Bio != nil && len(*req.Bio) > 500 {
-		return nil, fmt.Errorf("%w: bio exceeds 500 characters limit", ErrValidationFailed)
-	}
 
 	params := repository.UpdateProfileParams{
 		FullName:    req.FullName,
 		PhoneNumber: req.PhoneNumber,
-		AvatarURL:   req.AvatarURL,
-		Bio:         req.Bio,
 		Address:     req.Address,
-		Gender:      req.Gender,
-		DateOfBirth: req.DateOfBirth,
 	}
 
 	profile, err := s.repo.Upsert(ctx, userID, params)

@@ -42,11 +42,3 @@ func TestValidatePhoneNumber(t *testing.T) {
 	}
 }
 
-func TestValidateGender(t *testing.T) {
-	if !ValidateGender("MALE") || !ValidateGender("female") || !ValidateGender("other") {
-		t.Errorf("expected valid genders to pass")
-	}
-	if ValidateGender("UNKNOWN_GENDER") {
-		t.Errorf("expected false for UNKNOWN_GENDER")
-	}
-}

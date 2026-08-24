@@ -10,7 +10,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-		// Config encapsulates runtime configuration parameters validated on server boot.
+// Config encapsulates runtime configuration parameters validated on server boot.
 type Config struct {
 	ServerPort                 string
 	Env                        string

@@ -15,11 +15,11 @@ The system SHALL enforce rate limits using Redis Sorted Sets and Lua scripts. Th
 - **THEN** the system rejects subsequent deletion attempts with HTTP 429 Too Many Requests.
 
 #### Scenario: Rate limit exceeded on notification read
-- **WHEN** a user exceeds 60 requests within a 1-minute window on GET /api/users/notifications or GET /api/users/notifications/preferences
+- **WHEN** a user exceeds 60 requests within a 1-minute window on GET /api/users/notifications
 - **THEN** the system rejects subsequent requests with HTTP 429 Too Many Requests and includes Retry-After header.
 
 #### Scenario: Rate limit exceeded on notification mutation
-- **WHEN** a user exceeds 30 mutation requests within a 1-minute window on PATCH /api/users/notifications/{id}/read, POST /api/users/notifications/read-all, DELETE /api/users/notifications/{id}, or PUT /api/users/notifications/preferences
+- **WHEN** a user exceeds 30 mutation requests within a 1-minute window on PATCH /api/users/notifications/{id}/read, POST /api/users/notifications/read-all, or DELETE /api/users/notifications/{id}
 - **THEN** the system rejects subsequent requests with HTTP 429 Too Many Requests and includes Retry-After header.
 
 #### Scenario: Redis failure degradation

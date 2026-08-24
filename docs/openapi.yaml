@@ -24,8 +24,6 @@ info:
     - Account delete (`DELETE /api/users/account`): 3 requests per minute.
     - Notification feed read (`GET /api/users/notifications`): 60 requests per minute.
     - Notification read-status mutation & deletion: 30 requests per minute.
-    - Notification preferences read (`GET /api/users/notifications/preferences`): 60 requests per minute.
-    - Notification preferences update (`PUT /api/users/notifications/preferences`): 30 requests per minute.
     - Redis sliding-window counters with fail-open fallback.
 
 servers:
@@ -41,8 +39,6 @@ tags:
     description: Critical lifecycle operations including account deletion
   - name: Notifications
     description: In-app notification feed, read-state toggles, and deletion
-  - name: Notification Preferences
-    description: User channel preferences (email, push, SMS, promotions)
   - name: Documentation
     description: Interactive Swagger UI and OpenAPI schema definitions
   - name: Health
@@ -118,6 +114,42 @@ paths:
             application/json:
               schema:
                 type: object
+
+  /api/users:
+    post:
+      tags:
+        - User Profile
+      summary: Create User Profile
+      description: Provisions or idempotently retrieves a user profile for the authenticated caller identified by the X-User-Id header.
+      security:
+        - GatewayUserIdAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProfileRequest"
+      responses:
+        "201":
+          description: User profile created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "200":
+          description: User profile already exists (idempotent replay).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /api/users/profile:
     get:
@@ -376,57 +408,6 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /api/users/notifications/preferences:
-    get:
-      tags:
-        - Notification Preferences
-      summary: Get Notification Preferences
-      description: Retrieves communication channel preferences (email, push, SMS, order updates, promotions) for the authenticated user.
-      security:
-        - GatewayUserIdAuth: []
-      responses:
-        "200":
-          description: Notification preferences retrieved successfully.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NotificationPreferences"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-    put:
-      tags:
-        - Notification Preferences
-      summary: Update Notification Preferences
-      description: Updates communication channel preferences for the authenticated user.
-      security:
-        - GatewayUserIdAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateNotificationPreferencesRequest"
-      responses:
-        "200":
-          description: Notification preferences updated successfully.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NotificationPreferences"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
 components:
   securitySchemes:
     GatewayUserIdAuth:
@@ -464,28 +445,10 @@ components:
           type: string
           nullable: true
           example: "+628123456789"
-        avatarUrl:
-          type: string
-          nullable: true
-          example: "https://images.unsplash.com/photo-profile.png"
-        bio:
-          type: string
-          nullable: true
-          example: "Passionate coffee enthusiast & developer."
         address:
           type: string
           nullable: true
           example: "Jl. Sudirman No. 45, Jakarta Pusat"
-        gender:
-          type: string
-          nullable: true
-          enum: [MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY]
-          example: "MALE"
-        dateOfBirth:
-          type: string
-          format: date-time
-          nullable: true
-          example: "1994-08-17T00:00:00Z"
         createdAt:
           type: string
           format: date-time
@@ -494,6 +457,23 @@ components:
           type: string
           format: date-time
           example: "2026-08-23T12:00:00Z"
+
+    CreateProfileRequest:
+      type: object
+      required:
+        - fullName
+      properties:
+        fullName:
+          type: string
+          example: "Budi Pratama"
+        phoneNumber:
+          type: string
+          nullable: true
+          example: "+628123456789"
+        address:
+          type: string
+          nullable: true
+          example: "Jl. Sudirman No. 45, Jakarta Pusat"
 
     UpdateProfileRequest:
       type: object
@@ -504,23 +484,9 @@ components:
         phoneNumber:
           type: string
           example: "+628123456789"
-        avatarUrl:
-          type: string
-          example: "https://images.unsplash.com/photo-profile-new.png"
-        bio:
-          type: string
-          example: "Tech lead & open-source contributor."
         address:
           type: string
           example: "Jl. Thamrin No. 10, Jakarta Pusat"
-        gender:
-          type: string
-          enum: [MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY]
-          example: "MALE"
-        dateOfBirth:
-          type: string
-          format: date-time
-          example: "1994-08-17T00:00:00Z"
 
     DeleteAccountRequest:
       type: object
@@ -625,52 +591,6 @@ components:
         totalPages:
           type: integer
           example: 1
-
-    NotificationPreferences:
-      type: object
-      properties:
-        userId:
-          type: string
-          format: uuid
-          example: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
-        emailEnabled:
-          type: boolean
-          example: true
-        pushEnabled:
-          type: boolean
-          example: true
-        smsEnabled:
-          type: boolean
-          example: false
-        orderUpdates:
-          type: boolean
-          example: true
-        promotions:
-          type: boolean
-          example: true
-        updatedAt:
-          type: string
-          format: date-time
-          example: "2026-08-24T08:00:00Z"
-
-    UpdateNotificationPreferencesRequest:
-      type: object
-      properties:
-        emailEnabled:
-          type: boolean
-          example: true
-        pushEnabled:
-          type: boolean
-          example: true
-        smsEnabled:
-          type: boolean
-          example: false
-        orderUpdates:
-          type: boolean
-          example: true
-        promotions:
-          type: boolean
-          example: false
 
     MarkAllReadResponse:
       type: object
