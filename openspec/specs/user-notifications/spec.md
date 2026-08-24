@@ -1,7 +1,11 @@
 # User Notifications
 
 ## Purpose
-Provides management of in-app user notification feeds, read/unread state updates, and deletion.
+Provides management of persistent in-app user notification feeds, read/unread state updates, and deletion in `store_user`.
+
+### Scope & Architectural Boundary
+- **In-App Notification Feed (`store_user`)**: Manages customer-facing in-app notification records (system alerts, account updates) persisted in the PostgreSQL `user_notifications` table and exposed via `/api/users/notifications`.
+- **External Transactional Notifications (`store_notification`)**: Out-of-band delivery of OTP verification codes via Email during registration and password reset is exclusively handled by the external `store_notification` microservice listening to `auth.events`. `store_user` does not manage external email deliveries.
 
 ## Requirements
 

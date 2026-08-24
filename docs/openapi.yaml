@@ -23,6 +23,10 @@ info:
       - Forcefully bans a user account while strictly preserving customer profile and notification data for audit and forensics.
       - Broadcasts `user.banned` on `user.events` with dual-compatible keys (`event`/`event_type`, `userId`/`user_id`) to trigger token revocation in `store_auth` and order cancellation in `store_order`.
 
+    ### Notification Architecture Separation
+    - **`store_user` (In-App Feed)**: Manages persistent user notification items in PostgreSQL (`user_notifications` table) exposed via `/api/users/notifications`.
+    - **`store_notification` (Transactional Delivery)**: Dedicated microservice exclusively consuming `auth.events` to send out-of-band **OTP verification codes via Email** during registration and password resets. It does not store in-app notifications.
+
     ### Rate Limiting & Resilience
     - Profile read (`GET /api/users/profile`): 60 requests per minute.
     - Profile write (`PUT /api/users/profile`): 15 requests per minute.

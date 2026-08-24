@@ -43,6 +43,20 @@ High-performance User Profile Management, Account Lifecycle, and In-App Notifica
 
 ---
 
+### 🔔 Notification Architecture & Service Separation
+
+It is important to distinguish between **in-app notifications** and **external transactional notifications**:
+
+* **`store_user` (In-App Notification Feed)**:
+  - Manages the user's persistent in-app notifications in PostgreSQL (`user_notifications` table).
+  - Exposes REST endpoints (`/api/users/notifications`) for web/mobile inbox retrieval, pagination, read receipts, and deletion.
+* **`store_notification` (Transactional Delivery)**:
+  - Dedicated microservice whose sole responsibility is consuming Kafka events (`auth.events`) to send out-of-band **OTP verification codes via Email** during account registration and password resets.
+  - Does **not** store or manage in-app user notifications.
+
+
+---
+
 ## ⚡ Tech Stack
 
 - **Language & Router**: Go 1.26 with [`chi/v5`](https://github.com/go-chi/chi)
