@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	orderv1 "github.com/Sall-lah/store_proto/gen/go/store/order/v1"
 	"github.com/Sall-lah/store_user/internal/client/order"
 	"github.com/Sall-lah/store_user/internal/kafka"
@@ -20,7 +21,7 @@ func setupTestHandler() (*ProfileHandler, *repository.MockUserProfileRepository,
 	repo := repository.NewMockUserProfileRepository()
 	orderMock := &order.MockClient{}
 	kafkaMock := &kafka.MockProducer{}
-	svc := service.NewUserService(repo, orderMock, kafkaMock, "user.events")
+	svc := service.NewUserService(repo, nil, orderMock, kafkaMock, "user.events")
 	return NewProfileHandler(svc), repo, orderMock, kafkaMock
 }
 
@@ -211,3 +212,53 @@ func TestHandler_HealthCheck(t *testing.T) {
 		t.Errorf("expected 200 OK, got: %d", rec.Code)
 	}
 }
+
+func TestAdminHandler_DeleteUser_Success(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	orderMock := &order.MockClient{}
+	kafkaMock := &kafka.MockProducer{}
+	svc := service.NewUserService(repo, nil, orderMock, kafkaMock, "user.events")
+	adminH := NewAdminHandler(svc)
+
+	targetID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+	name := "Target User"
+	_, _ = repo.Upsert(context.Background(), targetID, repository.UpdateProfileParams{FullName: &name})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/"+targetID, nil)
+	// Add chi URL parameter
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", targetID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rec := httptest.NewRecorder()
+	adminH.DeleteUser(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got: %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]string
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
+	if resp["message"] != "User account successfully deleted by admin" {
+		t.Errorf("unexpected message: %s", resp["message"])
+	}
+}
+
+func TestAdminHandler_DeleteUser_InvalidUUID(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	svc := service.NewUserService(repo, nil, nil, nil, "user.events")
+	adminH := NewAdminHandler(svc)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/invalid-id", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "invalid-id")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rec := httptest.NewRecorder()
+	adminH.DeleteUser(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for invalid UUID, got: %d", rec.Code)
+	}
+}
+

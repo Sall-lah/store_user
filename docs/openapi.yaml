@@ -37,6 +37,8 @@ tags:
     description: Personal profile details retrieval and updates
   - name: Account Lifecycle
     description: Critical lifecycle operations including account deletion
+  - name: Admin User Management
+    description: Privileged administrative user operations and forced account deletion
   - name: Notifications
     description: In-app notification feed, read-state toggles, and deletion
   - name: Documentation
@@ -242,6 +244,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/admin/users/{id}:
+    delete:
+      tags:
+        - Admin User Management
+      summary: Admin Delete User Account
+      description: |
+        Forcefully deletes a target user account by UUID.
+        Bypasses active order pre-flight verification checks against `store_order`.
+        Purges user profile and notifications, and broadcasts a `user.deleted` event on Kafka topic `user.events` with reason `admin_deletion`.
+      security:
+        - GatewayUserIdAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Target User UUID identifier to delete
+          schema:
+            type: string
+            format: uuid
+            example: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+      responses:
+        "200":
+          description: User account successfully deleted by admin.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminDeleteUserSuccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -502,6 +542,14 @@ components:
           type: string
           example: "Account successfully deleted"
 
+    AdminDeleteUserSuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "User account successfully deleted by admin"
+
+
     ActiveOrderSummary:
       type: object
       properties:
@@ -625,6 +673,12 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     Unauthorized:
       description: Authentication identity missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Access forbidden due to insufficient role claims.
       content:
         application/json:
           schema:

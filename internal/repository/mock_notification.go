@@ -133,6 +133,20 @@ func (m *MockNotificationRepository) Delete(ctx context.Context, userID string, 
 	return nil
 }
 
+// DeleteByUserID purges all notifications for the given user from mock memory.
+func (m *MockNotificationRepository) DeleteByUserID(ctx context.Context, userID string) error {
+	if m.ErrDelete != nil {
+		return m.ErrDelete
+	}
+	for id, n := range m.Notifications {
+		if n.UserID == userID {
+			delete(m.Notifications, id)
+		}
+	}
+	return nil
+}
+
+
 
 // Create inserts a mock notification into memory.
 func (m *MockNotificationRepository) Create(ctx context.Context, item NotificationRecord) (*NotificationRecord, error) {

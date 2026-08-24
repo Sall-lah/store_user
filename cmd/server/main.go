@@ -72,16 +72,17 @@ func main() {
 
 	// 6. Assemble Architecture Layers
 	repo := repository.NewPrismaUserProfileRepository(prismaClient)
-	svc := service.NewUserService(repo, orderClient, kafkaProducer, cfg.KafkaTopicUserEvents)
-	profileHandler := handler.NewProfileHandler(svc)
-
 	notifRepo := repository.NewPrismaNotificationRepository(prismaClient)
+	svc := service.NewUserService(repo, notifRepo, orderClient, kafkaProducer, cfg.KafkaTopicUserEvents)
+	profileHandler := handler.NewProfileHandler(svc)
+	adminHandler := handler.NewAdminHandler(svc)
+
 	notifSvc := service.NewNotificationService(notifRepo)
 	notifHandler := handler.NewNotificationHandler(notifSvc)
 
 	docHandler := handler.NewDocHandler("docs/openapi.yaml", "docs/openapi.json")
 
-	httpRouter := router.NewRouter(cfg, profileHandler, notifHandler, docHandler, limiter)
+	httpRouter := router.NewRouter(cfg, profileHandler, adminHandler, notifHandler, docHandler, limiter)
 
 	// 7. Create HTTP Server
 	serverAddr := fmt.Sprintf(":%s", cfg.ServerPort)

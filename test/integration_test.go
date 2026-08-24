@@ -42,9 +42,10 @@ func setupTestEnvironment() *testEnvironment {
 	orderClient := &order.MockClient{}
 	kafkaMock := &kafka.MockProducer{}
 
-	svc := service.NewUserService(repo, orderClient, kafkaMock, cfg.KafkaTopicUserEvents)
+	svc := service.NewUserService(repo, nil, orderClient, kafkaMock, cfg.KafkaTopicUserEvents)
 	h := handler.NewProfileHandler(svc)
-	r := router.NewRouter(cfg, h, nil, nil, nil)
+	adminH := handler.NewAdminHandler(svc)
+	r := router.NewRouter(cfg, h, adminH, nil, nil, nil)
 
 	return &testEnvironment{
 		server:      r,
@@ -209,3 +210,68 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 		t.Errorf("Step 7 failed: unexpected event payload: %+v", event)
 	}
 }
+
+func TestIntegration_AdminForcedAccountDeletion(t *testing.T) {
+	env := setupTestEnvironment()
+	adminID := "00000000-1111-2222-3333-444444444444"
+	targetUserID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+
+	// 1. Create target profile in DB
+	name := "Alice Target"
+	_, err := env.repo.Upsert(context.Background(), targetUserID, repository.UpdateProfileParams{FullName: &name})
+	if err != nil {
+		t.Fatalf("Failed to seed profile: %v", err)
+	}
+
+	// 2. Mock orderClient to report active orders (which would block customer deletion)
+	env.orderClient.CheckActiveOrdersFunc = func(ctx context.Context, userID string) (*orderv1.CheckActiveOrdersResponse, error) {
+		t.Fatal("Order pre-flight check should NOT be called for admin deletion")
+		return &orderv1.CheckActiveOrdersResponse{
+			HasActiveOrders:  true,
+			ActiveOrderCount: 5,
+		}, nil
+	}
+
+	// 3. Attempt deletion as customer -> 403 Forbidden
+	reqCust := httptest.NewRequest(http.MethodDelete, "/api/admin/users/"+targetUserID, nil)
+	reqCust.Header.Set("X-User-Id", targetUserID)
+	reqCust.Header.Set("X-User-Role", "CUSTOMER")
+	recCust := httptest.NewRecorder()
+	env.server.ServeHTTP(recCust, reqCust)
+
+	if recCust.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for customer, got: %d", recCust.Code)
+	}
+
+	// 4. Perform deletion as ADMIN -> 200 OK
+	reqAdmin := httptest.NewRequest(http.MethodDelete, "/api/admin/users/"+targetUserID, nil)
+	reqAdmin.Header.Set("X-User-Id", adminID)
+	reqAdmin.Header.Set("X-User-Role", "ADMIN")
+	recAdmin := httptest.NewRecorder()
+	env.server.ServeHTTP(recAdmin, reqAdmin)
+
+	if recAdmin.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin delete, got: %d (body: %s)", recAdmin.Code, recAdmin.Body.String())
+	}
+
+	// 5. Verify profile deleted from DB
+	_, err = env.repo.GetByUserID(context.Background(), targetUserID)
+	if err != repository.ErrNotFound {
+		t.Errorf("expected profile to be deleted from DB, got: %v", err)
+	}
+
+	// 6. Verify Kafka event dispatched with reason admin_deletion
+	if len(env.kafkaMock.PublishedMessages) != 1 {
+		t.Fatalf("expected 1 published kafka message, got: %d", len(env.kafkaMock.PublishedMessages))
+	}
+	msg := env.kafkaMock.PublishedMessages[0]
+	if msg.Key != targetUserID {
+		t.Errorf("expected message key %s, got: %s", targetUserID, msg.Key)
+	}
+	var event kafka.LifecycleEvent
+	_ = json.Unmarshal(msg.Payload, &event)
+	if event.Reason != "admin_deletion" {
+		t.Errorf("expected reason admin_deletion, got: %s", event.Reason)
+	}
+}
+

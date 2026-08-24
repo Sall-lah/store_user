@@ -13,7 +13,7 @@ import (
 
 func TestGetProfile_AutoCreateForNewUser(t *testing.T) {
 	repo := repository.NewMockUserProfileRepository()
-	svc := NewUserService(repo, nil, nil, "user.events")
+	svc := NewUserService(repo, nil, nil, nil, "user.events")
 	ctx := context.Background()
 
 	p, err := svc.GetProfile(ctx, "usr_new")
@@ -28,7 +28,7 @@ func TestGetProfile_AutoCreateForNewUser(t *testing.T) {
 
 func TestCreateUserProfile_SuccessAndIdempotent(t *testing.T) {
 	repo := repository.NewMockUserProfileRepository()
-	svc := NewUserService(repo, nil, nil, "user.events")
+	svc := NewUserService(repo, nil, nil, nil, "user.events")
 	ctx := context.Background()
 
 	phone := "+628123456789"
@@ -66,7 +66,7 @@ func TestCreateUserProfile_SuccessAndIdempotent(t *testing.T) {
 
 func TestCreateUserProfile_Validation(t *testing.T) {
 	repo := repository.NewMockUserProfileRepository()
-	svc := NewUserService(repo, nil, nil, "user.events")
+	svc := NewUserService(repo, nil, nil, nil, "user.events")
 	ctx := context.Background()
 
 	// Empty userID
@@ -90,7 +90,7 @@ func TestCreateUserProfile_Validation(t *testing.T) {
 
 func TestUpdateProfile_Validation(t *testing.T) {
 	repo := repository.NewMockUserProfileRepository()
-	svc := NewUserService(repo, nil, nil, "user.events")
+	svc := NewUserService(repo, nil, nil, nil, "user.events")
 	ctx := context.Background()
 
 	// 1. Empty full name
@@ -130,7 +130,7 @@ func TestDeleteAccount_Success(t *testing.T) {
 	}
 
 	kafkaMock := &kafka.MockProducer{}
-	svc := NewUserService(repo, orderClient, kafkaMock, "user.events")
+	svc := NewUserService(repo, nil, orderClient, kafkaMock, "user.events")
 
 	err := svc.DeleteAccount(context.Background(), "usr_1", DeleteAccountRequest{Reason: "user_leaving"})
 	if err != nil {
@@ -172,7 +172,7 @@ func TestDeleteAccount_BlockedByActiveOrders(t *testing.T) {
 	}
 
 	kafkaMock := &kafka.MockProducer{}
-	svc := NewUserService(repo, orderClient, kafkaMock, "user.events")
+	svc := NewUserService(repo, nil, orderClient, kafkaMock, "user.events")
 
 	err := svc.DeleteAccount(context.Background(), "usr_1", DeleteAccountRequest{})
 	if err == nil {
@@ -211,7 +211,7 @@ func TestDeleteAccount_OrderServiceUnavailable(t *testing.T) {
 	}
 
 	kafkaMock := &kafka.MockProducer{}
-	svc := NewUserService(repo, orderClient, kafkaMock, "user.events")
+	svc := NewUserService(repo, nil, orderClient, kafkaMock, "user.events")
 
 	err := svc.DeleteAccount(context.Background(), "usr_1", DeleteAccountRequest{})
 	if !errors.Is(err, ErrOrderServiceUnavailable) {
@@ -224,3 +224,98 @@ func TestDeleteAccount_OrderServiceUnavailable(t *testing.T) {
 		t.Errorf("expected profile to remain in DB, got: %v", err)
 	}
 }
+
+func TestAdminDeleteUser_Success_BypassesActiveOrders(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	notifRepo := repository.NewMockNotificationRepository()
+	validUUID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+
+	name := "Target User"
+	_, _ = repo.Upsert(context.Background(), validUUID, repository.UpdateProfileParams{FullName: &name})
+	_, _ = notifRepo.Create(context.Background(), repository.NotificationRecord{
+		UserID:  validUUID,
+		Title:   "Alert",
+		Message: "Important message",
+	})
+
+	// Order service client that would block regular customer deletion
+	orderClient := &order.MockClient{
+		CheckActiveOrdersFunc: func(ctx context.Context, userID string) (*orderv1.CheckActiveOrdersResponse, error) {
+			t.Fatal("CheckActiveOrders MUST NOT be called during admin user deletion")
+			return nil, nil
+		},
+	}
+
+	kafkaMock := &kafka.MockProducer{}
+	svc := NewUserService(repo, notifRepo, orderClient, kafkaMock, "user.events")
+
+	err := svc.AdminDeleteUser(context.Background(), validUUID)
+	if err != nil {
+		t.Fatalf("unexpected error during admin user delete: %v", err)
+	}
+
+	// 1. Profile must be deleted from DB
+	_, err = repo.GetByUserID(context.Background(), validUUID)
+	if err != repository.ErrNotFound {
+		t.Errorf("expected profile to be deleted, got err: %v", err)
+	}
+
+	// 2. Notifications must be deleted
+	notifs, count, _, _ := notifRepo.List(context.Background(), repository.ListNotificationsParams{UserID: validUUID})
+	if count != 0 || len(notifs) != 0 {
+		t.Errorf("expected 0 notifications remaining, got: %d", count)
+	}
+
+	// 3. Kafka event must be emitted with reason "admin_deletion"
+	if len(kafkaMock.PublishedMessages) != 1 {
+		t.Fatalf("expected 1 published kafka message, got: %d", len(kafkaMock.PublishedMessages))
+	}
+	if kafkaMock.PublishedMessages[0].Key != validUUID {
+		t.Errorf("expected kafka key %s, got %s", validUUID, kafkaMock.PublishedMessages[0].Key)
+	}
+}
+
+func TestAdminDeleteUser_Idempotent_NonExistentProfile(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	validUUID := "a1111111-2222-3333-4444-555555555555"
+
+	kafkaMock := &kafka.MockProducer{}
+	svc := NewUserService(repo, nil, nil, kafkaMock, "user.events")
+
+	// Target profile does not exist in store_user DB
+	err := svc.AdminDeleteUser(context.Background(), validUUID)
+	if err != nil {
+		t.Fatalf("expected nil for idempotent non-existent profile deletion, got: %v", err)
+	}
+
+	// Kafka event must still be dispatched so store_auth cleans up credentials
+	if len(kafkaMock.PublishedMessages) != 1 {
+		t.Fatalf("expected 1 published kafka message, got: %d", len(kafkaMock.PublishedMessages))
+	}
+}
+
+func TestAdminDeleteUser_InvalidUUID(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	svc := NewUserService(repo, nil, nil, nil, "user.events")
+
+	err := svc.AdminDeleteUser(context.Background(), "invalid-non-uuid-string")
+	if !errors.Is(err, ErrInvalidUserID) {
+		t.Errorf("expected ErrInvalidUserID, got: %v", err)
+	}
+}
+
+func TestAdminDeleteUser_KafkaFailure(t *testing.T) {
+	repo := repository.NewMockUserProfileRepository()
+	validUUID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+
+	kafkaMock := &kafka.MockProducer{
+		PublishError: errors.New("kafka broker down"),
+	}
+	svc := NewUserService(repo, nil, nil, kafkaMock, "user.events")
+
+	err := svc.AdminDeleteUser(context.Background(), validUUID)
+	if !errors.Is(err, ErrKafkaPublishFailed) {
+		t.Fatalf("expected ErrKafkaPublishFailed, got: %v", err)
+	}
+}
+

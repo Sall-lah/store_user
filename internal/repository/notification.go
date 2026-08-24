@@ -22,6 +22,7 @@ type NotificationRepository interface {
 	MarkAsRead(ctx context.Context, userID string, id string) (*NotificationRecord, error)
 	MarkAllAsRead(ctx context.Context, userID string) (int, error)
 	Delete(ctx context.Context, userID string, id string) error
+	DeleteByUserID(ctx context.Context, userID string) error
 	Create(ctx context.Context, item NotificationRecord) (*NotificationRecord, error)
 }
 
@@ -183,6 +184,24 @@ func (r *PrismaNotificationRepository) Delete(ctx context.Context, userID string
 
 	return nil
 }
+
+// DeleteByUserID permanently purges all notifications belonging to a specific user.
+// Why: Ensures all user-associated notification records are purged when an account is deleted.
+func (r *PrismaNotificationRepository) DeleteByUserID(ctx context.Context, userID string) error {
+	_, err := r.client.UserNotifications.FindMany(
+		db.UserNotifications.UserID.Equals(userID),
+	).Delete().Exec(ctx)
+
+	if err != nil {
+		if db.IsErrNotFound(err) || errors.Is(err, db.ErrNotFound) || strings.Contains(err.Error(), "Record to delete does not exist") {
+			return nil
+		}
+		return fmt.Errorf("failed to delete notifications for user: %w", err)
+	}
+
+	return nil
+}
+
 
 // Create inserts a new notification record.
 // Why: Facilitates integration testing and internal event ingestion.

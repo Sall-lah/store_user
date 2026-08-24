@@ -57,9 +57,10 @@ func TestLive_DatabaseAndRouterWorkflow(t *testing.T) {
 	repo := repository.NewPrismaUserProfileRepository(prismaClient)
 	orderMock := &order.MockClient{}
 	kafkaMock := &kafka.MockProducer{}
-	svc := service.NewUserService(repo, orderMock, kafkaMock, cfg.KafkaTopicUserEvents)
+	svc := service.NewUserService(repo, nil, orderMock, kafkaMock, cfg.KafkaTopicUserEvents)
 	profileHandler := handler.NewProfileHandler(svc)
-	server := router.NewRouter(cfg, profileHandler, nil, nil, limiter)
+	adminHandler := handler.NewAdminHandler(svc)
+	server := router.NewRouter(cfg, profileHandler, adminHandler, nil, nil, limiter)
 
 	// 4. Generate random test user UUID
 	testUserID := uuid.NewString()
@@ -126,3 +127,93 @@ func TestLive_DatabaseAndRouterWorkflow(t *testing.T) {
 	}
 	t.Logf("✓ Live PostgreSQL: Profile permanently hard-deleted from database")
 }
+
+func TestLive_AdminForceDeleteUserWorkflow(t *testing.T) {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Skipf("Skipping live test: config load failed (%v)", err)
+	}
+
+	// 1. Connect to live Prisma PostgreSQL
+	prismaClient := db.NewClient()
+	if err := prismaClient.Prisma.Connect(); err != nil {
+		t.Fatalf("Live PostgreSQL connection failed: %v", err)
+	}
+	defer func() {
+		_ = prismaClient.Prisma.Disconnect()
+	}()
+
+	// 2. Assemble service with live database repository
+	repo := repository.NewPrismaUserProfileRepository(prismaClient)
+	notifRepo := repository.NewPrismaNotificationRepository(prismaClient)
+	orderMock := &order.MockClient{}
+	kafkaMock := &kafka.MockProducer{}
+	svc := service.NewUserService(repo, notifRepo, orderMock, kafkaMock, cfg.KafkaTopicUserEvents)
+	profileHandler := handler.NewProfileHandler(svc)
+	adminHandler := handler.NewAdminHandler(svc)
+	server := router.NewRouter(cfg, profileHandler, adminHandler, nil, nil, nil)
+
+	// 3. Generate random test target user UUID and Admin UUID
+	targetUserID := uuid.NewString()
+	adminUserID := uuid.NewString()
+
+	// Ensure cleanup before/after
+	_ = repo.HardDeleteByUserID(context.Background(), targetUserID)
+	_ = notifRepo.DeleteByUserID(context.Background(), targetUserID)
+	defer func() {
+		_ = repo.HardDeleteByUserID(context.Background(), targetUserID)
+		_ = notifRepo.DeleteByUserID(context.Background(), targetUserID)
+	}()
+
+	// STEP 1: Provision target profile in live PostgreSQL
+	reqCreate := httptest.NewRequest(http.MethodGet, "/api/users/profile", nil)
+	reqCreate.Header.Set("X-User-Id", targetUserID)
+	recCreate := httptest.NewRecorder()
+	server.ServeHTTP(recCreate, reqCreate)
+	if recCreate.Code != http.StatusOK {
+		t.Fatalf("Failed to provision initial profile: %s", recCreate.Body.String())
+	}
+	t.Logf("✓ Live PostgreSQL: Seeded random target user profile %s", targetUserID)
+
+	// STEP 2: Customer attempt to delete admin route -> 403 Forbidden
+	reqCust := httptest.NewRequest(http.MethodDelete, "/api/admin/users/"+targetUserID, nil)
+	reqCust.Header.Set("X-User-Id", targetUserID)
+	reqCust.Header.Set("X-User-Role", "CUSTOMER")
+	recCust := httptest.NewRecorder()
+	server.ServeHTTP(recCust, reqCust)
+	if recCust.Code != http.StatusForbidden {
+		t.Fatalf("Expected 403 Forbidden for customer, got: %d", recCust.Code)
+	}
+	t.Logf("✓ Security Check: Non-admin caller correctly rejected with 403 Forbidden")
+
+	// STEP 3: Admin deletes user -> 200 OK
+	reqAdmin := httptest.NewRequest(http.MethodDelete, "/api/admin/users/"+targetUserID, nil)
+	reqAdmin.Header.Set("X-User-Id", adminUserID)
+	reqAdmin.Header.Set("X-User-Role", "ADMIN")
+	recAdmin := httptest.NewRecorder()
+	server.ServeHTTP(recAdmin, reqAdmin)
+	if recAdmin.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for admin deletion, got: %d (body: %s)", recAdmin.Code, recAdmin.Body.String())
+	}
+	t.Logf("✓ Live Admin Action: DELETE /api/admin/users/%s returned 200 OK", targetUserID)
+
+	// STEP 4: Verify target user is hard-deleted from live PostgreSQL database
+	_, err = repo.GetByUserID(context.Background(), targetUserID)
+	if err != repository.ErrNotFound {
+		t.Errorf("Expected profile to be deleted from live PostgreSQL, but error was: %v", err)
+	}
+	t.Logf("✓ Live PostgreSQL: Verified user profile %s purged from database", targetUserID)
+
+	// STEP 5: Verify Kafka domain event dispatch
+	if len(kafkaMock.PublishedMessages) != 1 {
+		t.Fatalf("Expected 1 Kafka event, got %d", len(kafkaMock.PublishedMessages))
+	}
+	msg := kafkaMock.PublishedMessages[0]
+	var event kafka.LifecycleEvent
+	_ = json.Unmarshal(msg.Payload, &event)
+	if event.Event != "user.deleted" || event.UserID != targetUserID || event.Reason != "admin_deletion" {
+		t.Errorf("Unexpected Kafka domain event payload: %+v", event)
+	}
+	t.Logf("✓ Kafka Broadcast: Dispatched domain event {event: user.deleted, userId: %s, reason: %s}", targetUserID, event.Reason)
+}
+

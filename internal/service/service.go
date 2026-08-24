@@ -10,6 +10,7 @@ import (
 	"github.com/Sall-lah/store_user/internal/client/order"
 	"github.com/Sall-lah/store_user/internal/kafka"
 	"github.com/Sall-lah/store_user/internal/repository"
+	"github.com/Sall-lah/store_user/internal/validator"
 )
 
 // UserService defines the business logic contract for user profile and account operations.
@@ -19,20 +20,23 @@ type UserService interface {
 	CreateUserProfile(ctx context.Context, req CreateProfileRequest) (*CreateProfileResult, error)
 	UpdateProfile(ctx context.Context, userID string, req UpdateProfileRequest) (*repository.UserProfile, error)
 	DeleteAccount(ctx context.Context, userID string, req DeleteAccountRequest) error
+	AdminDeleteUser(ctx context.Context, targetUserID string) error
 }
 
 // UserServiceImpl implements UserService with persistence, gRPC, and messaging dependencies.
 type UserServiceImpl struct {
 	repo          repository.UserProfileRepository
+	notifRepo     repository.NotificationRepository
 	orderClient   order.Client
 	kafkaProducer kafka.Producer
 	kafkaTopic    string
 }
 
 // NewUserService constructs a new UserServiceImpl with required collaborators.
-// Why: Injects decoupled repository, gRPC client, and event publisher dependencies.
+// Why: Injects decoupled repository, notification repository, gRPC client, and event publisher dependencies.
 func NewUserService(
 	repo repository.UserProfileRepository,
+	notifRepo repository.NotificationRepository,
 	orderClient order.Client,
 	kafkaProducer kafka.Producer,
 	kafkaTopic string,
@@ -42,6 +46,7 @@ func NewUserService(
 	}
 	return &UserServiceImpl{
 		repo:          repo,
+		notifRepo:     notifRepo,
 		orderClient:   orderClient,
 		kafkaProducer: kafkaProducer,
 		kafkaTopic:    kafkaTopic,
@@ -175,3 +180,35 @@ func (s *UserServiceImpl) DeleteAccount(ctx context.Context, userID string, req 
 
 	return nil
 }
+
+// AdminDeleteUser forcefully deletes a user's account and profile, bypassing order checks, and publishes Kafka lifecycle event.
+// Why: Enables administrators to perform compliance or policy account purges without blocking on active orders.
+func (s *UserServiceImpl) AdminDeleteUser(ctx context.Context, targetUserID string) error {
+	trimmedID := strings.TrimSpace(targetUserID)
+	if trimmedID == "" || !validator.ValidateUUID(trimmedID) {
+		return ErrInvalidUserID
+	}
+
+	// 1. Hard-delete profile data from database (idempotent if not found)
+	if err := s.repo.HardDeleteByUserID(ctx, trimmedID); err != nil {
+		return fmt.Errorf("failed to delete user profile: %w", err)
+	}
+
+	// 2. Hard-delete associated notifications from database
+	if s.notifRepo != nil {
+		if err := s.notifRepo.DeleteByUserID(ctx, trimmedID); err != nil {
+			log.Printf("[UserService] Warning: Failed to delete notifications for user %s: %v", trimmedID, err)
+		}
+	}
+
+	// 3. Publish asynchronous user.deleted domain event to Kafka
+	if s.kafkaProducer != nil {
+		if err := s.kafkaProducer.PublishUserDeleted(ctx, s.kafkaTopic, trimmedID, "admin_deletion"); err != nil {
+			log.Printf("[UserService] Warning: Failed to publish user.deleted event for user %s: %v", trimmedID, err)
+			return ErrKafkaPublishFailed
+		}
+	}
+
+	return nil
+}
+

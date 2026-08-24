@@ -18,6 +18,7 @@ import (
 func NewRouter(
 	cfg *config.Config,
 	profileHandler *handler.ProfileHandler,
+	adminHandler *handler.AdminHandler,
 	notifHandler *handler.NotificationHandler,
 	docHandler *handler.DocHandler,
 	limiter ratelimit.Limiter,
@@ -52,7 +53,7 @@ func NewRouter(
 		r.Get("/docs/openapi.json", docHandler.ServeOpenAPIJSON)
 	}
 
-	// API Routes Helper
+	// Customer API Routes Helper
 	mountUserRoutes := func(sub chi.Router) {
 		sub.Use(middleware.AuthIdentity)
 
@@ -93,8 +94,23 @@ func NewRouter(
 		}
 	}
 
-	// Mount under unversioned /api/users
+	// Admin API Routes Helper
+	mountAdminRoutes := func(sub chi.Router) {
+		sub.Use(middleware.AuthIdentity)
+		sub.Use(middleware.RequireRole("ADMIN", "admin"))
+
+		if adminHandler != nil {
+			// Admin User Deletion: e.g. 15 req/min
+			sub.With(middleware.RateLimit(limiter, 15, cfg.RateLimitWindow, "ratelimit:admin:user:delete")).
+				Delete("/{id}", adminHandler.DeleteUser)
+		}
+	}
+
+	// Mount customer endpoints under unversioned /api/users
 	r.Route("/api/users", mountUserRoutes)
+
+	// Mount admin endpoints under unversioned /api/admin/users
+	r.Route("/api/admin/users", mountAdminRoutes)
 
 	return r
 }

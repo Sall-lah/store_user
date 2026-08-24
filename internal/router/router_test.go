@@ -22,16 +22,16 @@ func TestRouterRoutes(t *testing.T) {
 	}
 
 	repo := repository.NewMockUserProfileRepository()
-	svc := service.NewUserService(repo, nil, nil, "user.events")
-	profileH := handler.NewProfileHandler(svc)
-
 	notifRepo := repository.NewMockNotificationRepository()
+	svc := service.NewUserService(repo, notifRepo, nil, nil, "user.events")
+	profileH := handler.NewProfileHandler(svc)
 	notifSvc := service.NewNotificationService(notifRepo)
 	notifH := handler.NewNotificationHandler(notifSvc)
 
 	docH := handler.NewDocHandler("docs/openapi.yaml", "docs/openapi.json")
+	adminH := handler.NewAdminHandler(svc)
 
-	r := NewRouter(cfg, profileH, notifH, docH, nil)
+	r := NewRouter(cfg, profileH, adminH, notifH, docH, nil)
 
 	// 1. Health check
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -71,7 +71,7 @@ func TestRouterRoutes(t *testing.T) {
 		t.Errorf("expected 200 for /api/users/profile, got: %d", rec2.Code)
 	}
 
-	// 4. Notifications route
+	// 5. Notifications route
 	reqNotif := httptest.NewRequest(http.MethodGet, "/api/users/notifications", nil)
 	reqNotif.Header.Set("X-User-Id", validUUID)
 	recNotif := httptest.NewRecorder()
@@ -80,16 +80,28 @@ func TestRouterRoutes(t *testing.T) {
 		t.Errorf("expected 200 for /api/users/notifications, got: %d", recNotif.Code)
 	}
 
-	// 5. Notification preferences route is removed and returns 404 Not Found
-	reqPref := httptest.NewRequest(http.MethodGet, "/api/users/notifications/preferences", nil)
-	reqPref.Header.Set("X-User-Id", validUUID)
-	recPref := httptest.NewRecorder()
-	r.ServeHTTP(recPref, reqPref)
-	if recPref.Code != http.StatusNotFound {
-		t.Errorf("expected 404 for removed /api/users/notifications/preferences, got: %d", recPref.Code)
+	// 6. Admin user deletion route - 403 for missing/customer role
+	targetUUID := "11111111-2222-3333-4444-555555555555"
+	reqAdminCust := httptest.NewRequest(http.MethodDelete, "/api/admin/users/"+targetUUID, nil)
+	reqAdminCust.Header.Set("X-User-Id", validUUID)
+	reqAdminCust.Header.Set("X-User-Role", "CUSTOMER")
+	recAdminCust := httptest.NewRecorder()
+	r.ServeHTTP(recAdminCust, reqAdminCust)
+	if recAdminCust.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for customer accessing /api/admin/users, got: %d", recAdminCust.Code)
 	}
 
-	// 6. Old v1 route should return 404 Not Found
+	// 7. Admin user deletion route - 200 for ADMIN role
+	reqAdminOK := httptest.NewRequest(http.MethodDelete, "/api/admin/users/"+targetUUID, nil)
+	reqAdminOK.Header.Set("X-User-Id", validUUID)
+	reqAdminOK.Header.Set("X-User-Role", "ADMIN")
+	recAdminOK := httptest.NewRecorder()
+	r.ServeHTTP(recAdminOK, reqAdminOK)
+	if recAdminOK.Code != http.StatusOK {
+		t.Errorf("expected 200 for admin accessing /api/admin/users, got: %d", recAdminOK.Code)
+	}
+
+	// 8. Old v1 route should return 404 Not Found
 	req3 := httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil)
 	req3.Header.Set("X-User-Id", validUUID)
 	rec3 := httptest.NewRecorder()

@@ -61,3 +61,35 @@ func GetUserRole(ctx context.Context) string {
 	}
 	return ""
 }
+
+// RequireRole returns a middleware handler that restricts endpoint access to callers matching allowed role claims.
+// Why: Enforces perimeter authorization checks so privileged routes cannot be invoked by lower-tiered users.
+func RequireRole(allowedRoles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userRole := GetUserRole(r.Context())
+			if userRole == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error": "forbidden: missing role claims",
+				})
+				return
+			}
+
+			for _, allowed := range allowedRoles {
+				if strings.EqualFold(userRole, allowed) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "forbidden: insufficient permissions",
+			})
+		})
+	}
+}
+
