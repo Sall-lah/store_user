@@ -59,7 +59,7 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 	userID := "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
 
 	// 1. Initial Profile Read (Auto-initialization)
-	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil)
+	req1 := httptest.NewRequest(http.MethodGet, "/api/users/profile", nil)
 	req1.Header.Set("X-User-Id", userID)
 	rec1 := httptest.NewRecorder()
 	env.server.ServeHTTP(rec1, req1)
@@ -78,7 +78,7 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 
 	// 2. Profile Update
 	updatePayload := `{"fullName":"Budi Pratama","phoneNumber":"+628123456789","bio":"Software Engineer","address":"Jakarta, Indonesia","gender":"MALE"}`
-	req2 := httptest.NewRequest(http.MethodPut, "/api/v1/users/profile", bytes.NewBufferString(updatePayload))
+	req2 := httptest.NewRequest(http.MethodPut, "/api/users/profile", bytes.NewBufferString(updatePayload))
 	req2.Header.Set("X-User-Id", userID)
 	rec2 := httptest.NewRecorder()
 	env.server.ServeHTTP(rec2, req2)
@@ -112,7 +112,7 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 		}, nil
 	}
 
-	req3 := httptest.NewRequest(http.MethodDelete, "/api/v1/users/account", bytes.NewBufferString(`{"reason":"deleting"}`))
+	req3 := httptest.NewRequest(http.MethodDelete, "/api/users/account", bytes.NewBufferString(`{"reason":"deleting"}`))
 	req3.Header.Set("X-User-Id", userID)
 	rec3 := httptest.NewRecorder()
 	env.server.ServeHTTP(rec3, req3)
@@ -135,7 +135,7 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 		return nil, errors.New("rpc error: code = Unavailable desc = connection refused")
 	}
 
-	req4 := httptest.NewRequest(http.MethodDelete, "/api/v1/users/account", nil)
+	req4 := httptest.NewRequest(http.MethodDelete, "/api/users/account", nil)
 	req4.Header.Set("X-User-Id", userID)
 	rec4 := httptest.NewRecorder()
 	env.server.ServeHTTP(rec4, req4)
@@ -153,7 +153,7 @@ func TestIntegration_UserProfileLifecycleAndAccountDeletion(t *testing.T) {
 		}, nil
 	}
 
-	req5 := httptest.NewRequest(http.MethodDelete, "/api/v1/users/account", bytes.NewBufferString(`{"reason":"moving to another platform"}`))
+	req5 := httptest.NewRequest(http.MethodDelete, "/api/users/account", bytes.NewBufferString(`{"reason":"moving to another platform"}`))
 	req5.Header.Set("X-User-Id", userID)
 	rec5 := httptest.NewRecorder()
 	env.server.ServeHTTP(rec5, req5)

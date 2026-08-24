@@ -29,7 +29,7 @@ func TestHandler_GetProfile(t *testing.T) {
 	name := "Alice"
 	_, _ = repo.Upsert(context.Background(), "usr-123", repository.UpdateProfileParams{FullName: &name})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/users/profile", nil)
 	req.Header.Set("X-User-Id", "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d")
 
 	rec := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestHandler_UpdateProfile(t *testing.T) {
 	h, _, _, _ := setupTestHandler()
 
 	body := `{"fullName":"Bob New","phoneNumber":"+628123456789","bio":"<b>Cool Bio</b>"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/profile", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/users/profile", bytes.NewBufferString(body))
 	req.Header.Set("X-User-Id", "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d")
 
 	rec := httptest.NewRecorder()
@@ -75,7 +75,7 @@ func TestHandler_UpdateProfile_InvalidPhone(t *testing.T) {
 	h, _, _, _ := setupTestHandler()
 
 	body := `{"phoneNumber":"invalid-phone"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/profile", bytes.NewBufferString(body))
+	req := httptest.NewRequest(http.MethodPut, "/api/users/profile", bytes.NewBufferString(body))
 	req.Header.Set("X-User-Id", "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d")
 
 	rec := httptest.NewRecorder()
@@ -92,7 +92,7 @@ func TestHandler_DeleteAccount_Success(t *testing.T) {
 	name := "Alice"
 	_, _ = repo.Upsert(context.Background(), "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d", repository.UpdateProfileParams{FullName: &name})
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/account", bytes.NewBufferString(`{"reason":"leaving"}`))
+	req := httptest.NewRequest(http.MethodDelete, "/api/users/account", bytes.NewBufferString(`{"reason":"leaving"}`))
 	req.Header.Set("X-User-Id", "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d")
 
 	rec := httptest.NewRecorder()
@@ -124,7 +124,7 @@ func TestHandler_DeleteAccount_Conflict(t *testing.T) {
 		}, nil
 	}
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/account", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/users/account", nil)
 	req.Header.Set("X-User-Id", "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d")
 
 	rec := httptest.NewRecorder()

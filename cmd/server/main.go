@@ -74,7 +74,14 @@ func main() {
 	repo := repository.NewPrismaUserProfileRepository(prismaClient)
 	svc := service.NewUserService(repo, orderClient, kafkaProducer, cfg.KafkaTopicUserEvents)
 	profileHandler := handler.NewProfileHandler(svc)
-	httpRouter := router.NewRouter(cfg, profileHandler, limiter)
+
+	notifRepo := repository.NewPrismaNotificationRepository(prismaClient)
+	notifSvc := service.NewNotificationService(notifRepo)
+	notifHandler := handler.NewNotificationHandler(notifSvc)
+
+	docHandler := handler.NewDocHandler("docs/openapi.yaml", "docs/openapi.json")
+
+	httpRouter := router.NewRouter(cfg, profileHandler, notifHandler, docHandler, limiter)
 
 	// 7. Create HTTP Server
 	serverAddr := fmt.Sprintf(":%s", cfg.ServerPort)

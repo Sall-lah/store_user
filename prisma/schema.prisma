@@ -187,3 +187,34 @@ model ProcessedEvent {
   @@index([orderId])
   @@index([processedAt(sort: Desc)])
 }
+
+model user_notifications {
+  id         String    @id @default(uuid()) @db.Uuid
+  user_id    String    @db.Uuid
+  title      String
+  message    String
+  type       String    @default("SYSTEM_ALERT")
+  data       String?   @db.Text
+  is_read    Boolean   @default(false)
+  read_at    DateTime?
+  created_at DateTime  @default(now())
+
+  @@index([user_id, is_read])
+  @@index([user_id, created_at(sort: Desc)])
+  @@map("user_notifications")
+}
+
+model user_notification_preferences {
+  id            String   @id @default(uuid()) @db.Uuid
+  user_id       String   @unique @db.Uuid
+  email_enabled Boolean  @default(true)
+  push_enabled  Boolean  @default(true)
+  sms_enabled   Boolean  @default(false)
+  order_updates Boolean  @default(true)
+  promotions    Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  @@map("user_notification_preferences")
+}
+

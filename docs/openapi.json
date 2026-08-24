@@ -3,7 +3,7 @@
   "info": {
     "title": "Store User Microservice API",
     "version": "1.0.0",
-    "description": "User Profile Management and Account Lifecycle Service.\nPowered by Go (Chi router), PostgreSQL (Supabase), Prisma Client Go, gRPC (Order Service Check), Apache Kafka Domain Events, and Redis Sliding-Window Rate Limiting.\n\n### Authentication & Identity Propagation\nAuthentication is performed at the API Gateway perimeter (`store_gateway`). Upon verifying valid JWT bearer credentials, the gateway injects verified headers:\n- `X-User-Id`: Authenticated User UUID (e.g. `9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d`).\n- `X-User-Role`: User permission role (`customer`, `admin`).\n- `X-User-Email`: Registered email address.\n\n### Lifecycle Coordination (Account Deletion)\nWhen a customer deletes their account via `DELETE /api/v1/users/account`:\n1. **Synchronous Pre-flight Check**: Queries `store_order` over gRPC (`OrderService.CheckActiveOrders`). If active orders exist in states `PENDING_PAYMENT`, `PAID`, `PROCESSING`, or `SHIPPED`, the deletion is blocked and returns `409 Conflict`.\n2. **Hard Deletion**: Permanently purges the user's profile record from PostgreSQL.\n3. **Asynchronous Broadcast**: Dispatches a `user.deleted` domain event to Kafka topic `user.events` for `store_auth` to blacklist tokens and delete login credentials.\n\n### Rate Limiting & Resilience\n- Profile read (`GET /profile`): 60 requests per minute.\n- Profile write (`PUT /profile`): 15 requests per minute.\n- Account delete (`DELETE /account`): 3 requests per minute.\n- Redis sliding-window counters with fail-open fallback.\n"
+    "description": "User Profile Management, Account Lifecycle, and In-App Notifications Service.\nPowered by Go (Chi router), PostgreSQL (Supabase), Prisma Client Go, gRPC (Order Service Check), Apache Kafka Domain Events, and Redis Sliding-Window Rate Limiting.\n\n### Authentication & Identity Propagation\nAuthentication is performed at the API Gateway perimeter (`store_gateway`). Upon verifying valid JWT bearer credentials, the gateway injects verified headers:\n- `X-User-Id`: Authenticated User UUID (e.g. `9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d`).\n- `X-User-Role`: User permission role (`customer`, `admin`).\n- `X-User-Email`: Registered email address.\n\n### Lifecycle Coordination (Account Deletion)\nWhen a customer deletes their account via `DELETE /api/users/account`:\n1. **Synchronous Pre-flight Check**: Queries `store_order` over gRPC (`OrderService.CheckActiveOrders`). If active orders exist in states `PENDING_PAYMENT`, `PAID`, `PROCESSING`, or `SHIPPED`, the deletion is blocked and returns `409 Conflict`.\n2. **Hard Deletion**: Permanently purges the user's profile record from PostgreSQL.\n3. **Asynchronous Broadcast**: Dispatches a `user.deleted` domain event to Kafka topic `user.events` for `store_auth` to blacklist tokens and delete login credentials.\n\n### Rate Limiting & Resilience\n- Profile read (`GET /api/users/profile`): 60 requests per minute.\n- Profile write (`PUT /api/users/profile`): 15 requests per minute.\n- Account delete (`DELETE /api/users/account`): 3 requests per minute.\n- Notification feed read (`GET /api/users/notifications`): 60 requests per minute.\n- Notification read-status mutation & deletion: 30 requests per minute.\n- Notification preferences read (`GET /api/users/notifications/preferences`): 60 requests per minute.\n- Notification preferences update (`PUT /api/users/notifications/preferences`): 30 requests per minute.\n- Redis sliding-window counters with fail-open fallback.\n"
   },
   "servers": [
     {
@@ -23,6 +23,18 @@
     {
       "name": "Account Lifecycle",
       "description": "Critical lifecycle operations including account deletion"
+    },
+    {
+      "name": "Notifications",
+      "description": "In-app notification feed, read-state toggles, and deletion"
+    },
+    {
+      "name": "Notification Preferences",
+      "description": "User channel preferences (email, push, SMS, promotions)"
+    },
+    {
+      "name": "Documentation",
+      "description": "Interactive Swagger UI and OpenAPI schema definitions"
     },
     {
       "name": "Health",
@@ -51,7 +63,91 @@
         }
       }
     },
-    "/api/v1/users/profile": {
+    "/docs": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "summary": "Interactive Swagger UI",
+        "description": "Renders the Swagger UI interactive API documentation portal.",
+        "responses": {
+          "200": {
+            "description": "Swagger UI HTML page.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/swagger": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "summary": "Interactive Swagger UI Alias",
+        "description": "Alias route for the Swagger UI documentation page.",
+        "responses": {
+          "200": {
+            "description": "Swagger UI HTML page.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/docs/openapi.yaml": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "summary": "OpenAPI Specification (YAML)",
+        "description": "Serves the complete OpenAPI 3.1 schema definition in YAML format.",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 YAML document.",
+            "content": {
+              "application/x-yaml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/docs/openapi.json": {
+      "get": {
+        "tags": [
+          "Documentation"
+        ],
+        "summary": "OpenAPI Specification (JSON)",
+        "description": "Serves the complete OpenAPI 3.1 schema definition in JSON format.",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 JSON document.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/profile": {
       "get": {
         "tags": [
           "User Profile"
@@ -132,13 +228,13 @@
         }
       }
     },
-    "/api/v1/users/account": {
+    "/api/users/account": {
       "delete": {
         "tags": [
           "Account Lifecycle"
         ],
         "summary": "Delete User Account",
-        "description": "Performs synchronous order check, deletes user profile data, and broadcasts user.deleted event over Kafka.",
+        "description": "Executes a hard deletion of the user's account and profile data.\nPerforms synchronous gRPC pre-flight checks against `store_order` to prevent deletion if active orders exist (`PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`).\nOn success, broadcasts a `user.deleted` event on Kafka topic `user.events`.\n",
         "security": [
           {
             "GatewayUserIdAuth": []
@@ -156,7 +252,7 @@
         },
         "responses": {
           "200": {
-            "description": "Account permanently deleted.",
+            "description": "Account successfully deleted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -169,7 +265,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "409": {
-            "description": "Deletion blocked due to active pending or in-flight orders.",
+            "description": "Account deletion blocked due to active orders in flight.",
             "content": {
               "application/json": {
                 "schema": {
@@ -182,7 +278,7 @@
             "$ref": "#/components/responses/TooManyRequests"
           },
           "503": {
-            "description": "Order verification service unreachable or timed out.",
+            "description": "Order verification gRPC service is unavailable.",
             "content": {
               "application/json": {
                 "schema": {
@@ -190,6 +286,342 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/users/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List User Notifications",
+        "description": "Retrieves a paginated list of in-app notifications for the authenticated user, with optional filter by read status.",
+        "security": [
+          {
+            "GatewayUserIdAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number for pagination (minimum 1)",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of items per page (maximum 100)",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "is_read",
+            "in": "query",
+            "description": "Filter notifications by read status",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of notifications retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/users/notifications/{id}": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Get Notification by ID",
+        "description": "Retrieves an individual notification item owned by the caller.",
+        "security": [
+          {
+            "GatewayUserIdAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Notification UUID identifier",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notification"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Delete Notification",
+        "description": "Permanently deletes a single notification item owned by the user.",
+        "security": [
+          {
+            "GatewayUserIdAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Notification UUID identifier",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification successfully deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteNotificationSuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/users/notifications/{id}/read": {
+      "patch": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Mark Notification as Read",
+        "description": "Updates the read status of a specific notification and records the read timestamp.",
+        "security": [
+          {
+            "GatewayUserIdAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Notification UUID identifier",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification marked as read successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notification"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/users/notifications/read-all": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Mark All Notifications as Read",
+        "description": "Marks all unread notifications for the caller as read in a single batch operation.",
+        "security": [
+          {
+            "GatewayUserIdAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All notifications marked as read successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkAllReadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/users/notifications/preferences": {
+      "get": {
+        "tags": [
+          "Notification Preferences"
+        ],
+        "summary": "Get Notification Preferences",
+        "description": "Retrieves communication channel preferences (email, push, SMS, order updates, promotions) for the authenticated user.",
+        "security": [
+          {
+            "GatewayUserIdAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification preferences retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Notification Preferences"
+        ],
+        "summary": "Update Notification Preferences",
+        "description": "Updates communication channel preferences for the authenticated user.",
+        "security": [
+          {
+            "GatewayUserIdAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationPreferencesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Notification preferences updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
@@ -204,7 +636,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-User-Id",
-        "description": "Verified UUID injected by API Gateway"
+        "description": "Injected verified User UUID supplied downstream by `store_gateway`."
       }
     },
     "schemas": {
@@ -227,7 +659,7 @@
           "id": {
             "type": "string",
             "format": "uuid",
-            "example": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+            "example": "a81bc81b-dead-4e5d-abff-90865d1e13b1"
           },
           "userId": {
             "type": "string",
@@ -236,7 +668,7 @@
           },
           "fullName": {
             "type": "string",
-            "example": "John Doe"
+            "example": "Budi Pratama"
           },
           "phoneNumber": {
             "type": "string",
@@ -246,17 +678,17 @@
           "avatarUrl": {
             "type": "string",
             "nullable": true,
-            "example": "https://example.com/avatar.jpg"
+            "example": "https://images.unsplash.com/photo-profile.png"
           },
           "bio": {
             "type": "string",
             "nullable": true,
-            "example": "Coffee enthusiast and developer"
+            "example": "Passionate coffee enthusiast & developer."
           },
           "address": {
             "type": "string",
             "nullable": true,
-            "example": "123 Green Valley Road, Suite 400"
+            "example": "Jl. Sudirman No. 45, Jakarta Pusat"
           },
           "gender": {
             "type": "string",
@@ -273,12 +705,12 @@
             "type": "string",
             "format": "date-time",
             "nullable": true,
-            "example": "1995-08-15T00:00:00Z"
+            "example": "1994-08-17T00:00:00Z"
           },
           "createdAt": {
             "type": "string",
             "format": "date-time",
-            "example": "2026-08-20T10:00:00Z"
+            "example": "2026-08-23T10:00:00Z"
           },
           "updatedAt": {
             "type": "string",
@@ -292,26 +724,23 @@
         "properties": {
           "fullName": {
             "type": "string",
-            "maxLength": 100,
-            "example": "Jane Doe"
+            "example": "Budi Pratama Updated"
           },
           "phoneNumber": {
             "type": "string",
-            "example": "+628129876543"
+            "example": "+628123456789"
           },
           "avatarUrl": {
             "type": "string",
-            "example": "https://example.com/new-avatar.png"
+            "example": "https://images.unsplash.com/photo-profile-new.png"
           },
           "bio": {
             "type": "string",
-            "maxLength": 500,
-            "example": "Passionate reader and avid traveler."
+            "example": "Tech lead & open-source contributor."
           },
           "address": {
             "type": "string",
-            "maxLength": 255,
-            "example": "456 Sunset Boulevard, Floor 10"
+            "example": "Jl. Thamrin No. 10, Jakarta Pusat"
           },
           "gender": {
             "type": "string",
@@ -321,12 +750,12 @@
               "OTHER",
               "PREFER_NOT_TO_SAY"
             ],
-            "example": "FEMALE"
+            "example": "MALE"
           },
           "dateOfBirth": {
             "type": "string",
             "format": "date-time",
-            "example": "1998-04-22T00:00:00Z"
+            "example": "1994-08-17T00:00:00Z"
           }
         }
       },
@@ -388,6 +817,166 @@
           }
         }
       },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "c41f7142-6e7e-4091-a1b9-7561f7e34ef6"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+          },
+          "title": {
+            "type": "string",
+            "example": "Order Delivered"
+          },
+          "message": {
+            "type": "string",
+            "example": "Your order #ORD-2026-99281 has arrived safely."
+          },
+          "type": {
+            "type": "string",
+            "example": "ORDER_UPDATE"
+          },
+          "data": {
+            "type": "string",
+            "nullable": true,
+            "example": "{\"orderId\":\"ord_99281\"}"
+          },
+          "isRead": {
+            "type": "boolean",
+            "example": false
+          },
+          "readAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": "2026-08-24T08:30:00Z"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-08-24T08:00:00Z"
+          }
+        }
+      },
+      "NotificationListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            }
+          },
+          "totalCount": {
+            "type": "integer",
+            "example": 15
+          },
+          "unreadCount": {
+            "type": "integer",
+            "example": 3
+          },
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 20
+          },
+          "totalPages": {
+            "type": "integer",
+            "example": 1
+          }
+        }
+      },
+      "NotificationPreferences": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+          },
+          "emailEnabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "pushEnabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "smsEnabled": {
+            "type": "boolean",
+            "example": false
+          },
+          "orderUpdates": {
+            "type": "boolean",
+            "example": true
+          },
+          "promotions": {
+            "type": "boolean",
+            "example": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-08-24T08:00:00Z"
+          }
+        }
+      },
+      "UpdateNotificationPreferencesRequest": {
+        "type": "object",
+        "properties": {
+          "emailEnabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "pushEnabled": {
+            "type": "boolean",
+            "example": true
+          },
+          "smsEnabled": {
+            "type": "boolean",
+            "example": false
+          },
+          "orderUpdates": {
+            "type": "boolean",
+            "example": true
+          },
+          "promotions": {
+            "type": "boolean",
+            "example": false
+          }
+        }
+      },
+      "MarkAllReadResponse": {
+        "type": "object",
+        "properties": {
+          "updatedCount": {
+            "type": "integer",
+            "example": 3
+          },
+          "message": {
+            "type": "string",
+            "example": "Successfully marked 3 notifications as read"
+          }
+        }
+      },
+      "DeleteNotificationSuccessResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Notification successfully deleted"
+          }
+        }
+      },
       "ErrorResponse": {
         "type": "object",
         "properties": {
@@ -411,6 +1000,16 @@
       },
       "Unauthorized": {
         "description": "Authentication identity missing or invalid.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Requested resource was not found.",
         "content": {
           "application/json": {
             "schema": {

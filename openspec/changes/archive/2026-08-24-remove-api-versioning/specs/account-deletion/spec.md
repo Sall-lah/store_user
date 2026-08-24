@@ -1,8 +1,5 @@
-# Account Deletion
+## MODIFIED Requirements
 
-## Purpose
-Enforces safe, validated account deletion with synchronous pre-flight checks against active user orders and event broadcasting upon hard-deletion.
-## Requirements
 ### Requirement: Synchronous Order Pre-Flight Check on Account Deletion
 The system SHALL invoke store_order's gRPC OrderService.CheckActiveOrders RPC before proceeding with user account deletion. If the user has one or more orders in active lifecycle states (PENDING_PAYMENT, PAID, PROCESSING, SHIPPED), deletion MUST be aborted.
 
@@ -27,4 +24,3 @@ Upon successfully deleting the user's profile, the system SHALL publish a user.d
 #### Scenario: Publish user deleted lifecycle event
 - **WHEN** user profile hard-deletion succeeds
 - **THEN** the system emits { event: user.deleted, userId: <userId>, timestamp: <ISO-timestamp>, reason: user_requested_deletion } to Kafka topic user.events and returns HTTP 200 OK.
-

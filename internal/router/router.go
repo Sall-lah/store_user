@@ -13,9 +13,15 @@ import (
 	"github.com/Sall-lah/store_user/internal/ratelimit"
 )
 
-// NewRouter configures global middleware, health endpoints, identity guards, and rate-limited API routes.
-// Why: Centralizes all HTTP ingress routing and middleware orchestration for store_user.
-func NewRouter(cfg *config.Config, profileHandler *handler.ProfileHandler, limiter ratelimit.Limiter) http.Handler {
+// NewRouter configures global middleware, health probes, documentation routes, and rate-limited API routes.
+// Why: Centralizes all HTTP ingress routing and middleware orchestration for the store_user microservice.
+func NewRouter(
+	cfg *config.Config,
+	profileHandler *handler.ProfileHandler,
+	notifHandler *handler.NotificationHandler,
+	docHandler *handler.DocHandler,
+	limiter ratelimit.Limiter,
+) http.Handler {
 	r := chi.NewRouter()
 
 	// Global Middlewares
@@ -38,6 +44,14 @@ func NewRouter(cfg *config.Config, profileHandler *handler.ProfileHandler, limit
 	// Liveness / Readiness Probes
 	r.Get("/health", profileHandler.HealthCheck)
 
+	// API Documentation & Swagger UI Routes
+	if docHandler != nil {
+		r.Get("/docs", docHandler.ServeSwaggerUI)
+		r.Get("/swagger", docHandler.ServeSwaggerUI)
+		r.Get("/docs/openapi.yaml", docHandler.ServeOpenAPIYAML)
+		r.Get("/docs/openapi.json", docHandler.ServeOpenAPIJSON)
+	}
+
 	// API Routes Helper
 	mountUserRoutes := func(sub chi.Router) {
 		sub.Use(middleware.AuthIdentity)
@@ -53,10 +67,36 @@ func NewRouter(cfg *config.Config, profileHandler *handler.ProfileHandler, limit
 		// Account Deletion: e.g. 3 req/min
 		sub.With(middleware.RateLimit(limiter, cfg.RateLimitDeleteMaxRequests, cfg.RateLimitDeleteWindow, "ratelimit:user:account:delete")).
 			Delete("/account", profileHandler.DeleteAccount)
+
+		// In-App Notifications & Preferences
+		if notifHandler != nil {
+			// Notification Preferences: 60 req/min read, 30 req/min update
+			sub.With(middleware.RateLimit(limiter, cfg.RateLimitMaxRequests, cfg.RateLimitWindow, "ratelimit:user:notif:pref:read")).
+				Get("/notifications/preferences", notifHandler.GetPreferences)
+
+			sub.With(middleware.RateLimit(limiter, 30, cfg.RateLimitWindow, "ratelimit:user:notif:pref:update")).
+				Put("/notifications/preferences", notifHandler.UpdatePreferences)
+
+			// Notification Feed: 60 req/min read
+			sub.With(middleware.RateLimit(limiter, cfg.RateLimitMaxRequests, cfg.RateLimitWindow, "ratelimit:user:notif:read")).
+				Get("/notifications", notifHandler.ListNotifications)
+
+			sub.With(middleware.RateLimit(limiter, cfg.RateLimitMaxRequests, cfg.RateLimitWindow, "ratelimit:user:notif:read")).
+				Get("/notifications/{id}", notifHandler.GetNotification)
+
+			// Notification Mutations: 30 req/min
+			sub.With(middleware.RateLimit(limiter, 30, cfg.RateLimitWindow, "ratelimit:user:notif:update")).
+				Patch("/notifications/{id}/read", notifHandler.MarkAsRead)
+
+			sub.With(middleware.RateLimit(limiter, 30, cfg.RateLimitWindow, "ratelimit:user:notif:update")).
+				Post("/notifications/read-all", notifHandler.MarkAllAsRead)
+
+			sub.With(middleware.RateLimit(limiter, 30, cfg.RateLimitWindow, "ratelimit:user:notif:update")).
+				Delete("/notifications/{id}", notifHandler.DeleteNotification)
+		}
 	}
 
-	// Mount under standard /api/v1/users and alias /api/users
-	r.Route("/api/v1/users", mountUserRoutes)
+	// Mount under unversioned /api/users
 	r.Route("/api/users", mountUserRoutes)
 
 	return r

@@ -1,8 +1,5 @@
-# User Profile Management
+## MODIFIED Requirements
 
-## Purpose
-Manages retrieval, initialization, sanitization, and updating of user profile data.
-## Requirements
 ### Requirement: User Profile Retrieval
 The system SHALL allow authenticated users to retrieve their profile information using their verified identity (userId). If a profile record does not exist for a newly registered user, the system SHALL automatically initialize and return a baseline profile or a 404 Not Found response.
 
@@ -28,4 +25,3 @@ The system SHALL allow authenticated users to update their profile details (such
 #### Scenario: Input sanitization on text fields
 - **WHEN** a user includes HTML or script tags within the bio or address fields in PUT /api/users/profile
 - **THEN** the system sanitizes and strips the unsafe tags before storing the text in the database.
-

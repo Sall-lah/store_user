@@ -70,8 +70,8 @@ func TestLive_DatabaseAndRouterWorkflow(t *testing.T) {
 		_ = repo.HardDeleteByUserID(context.Background(), testUserID)
 	}()
 
-	// STEP A: GET /api/v1/users/profile (Auto-initializes profile in live PostgreSQL)
-	req1 := httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil)
+	// STEP A: GET /api/users/profile (Auto-initializes profile in live PostgreSQL)
+	req1 := httptest.NewRequest(http.MethodGet, "/api/users/profile", nil)
 	req1.Header.Set("X-User-Id", testUserID)
 	rec1 := httptest.NewRecorder()
 	server.ServeHTTP(rec1, req1)
@@ -89,9 +89,9 @@ func TestLive_DatabaseAndRouterWorkflow(t *testing.T) {
 	}
 	t.Logf("✓ Live PostgreSQL: Initial profile auto-created successfully for user %s", testUserID)
 
-	// STEP B: PUT /api/v1/users/profile (Mutates record in live PostgreSQL)
+	// STEP B: PUT /api/users/profile (Mutates record in live PostgreSQL)
 	updatePayload := `{"fullName":"Live Test User","phoneNumber":"+628123456789","bio":"Live PostgreSQL Verification","address":"Jakarta, ID","gender":"MALE"}`
-	req2 := httptest.NewRequest(http.MethodPut, "/api/v1/users/profile", bytes.NewBufferString(updatePayload))
+	req2 := httptest.NewRequest(http.MethodPut, "/api/users/profile", bytes.NewBufferString(updatePayload))
 	req2.Header.Set("X-User-Id", testUserID)
 	rec2 := httptest.NewRecorder()
 	server.ServeHTTP(rec2, req2)
@@ -109,8 +109,8 @@ func TestLive_DatabaseAndRouterWorkflow(t *testing.T) {
 	}
 	t.Logf("✓ Live PostgreSQL: Profile updated and persisted successfully")
 
-	// STEP C: DELETE /api/v1/users/account (Hard-deletes from live PostgreSQL)
-	req3 := httptest.NewRequest(http.MethodDelete, "/api/v1/users/account", bytes.NewBufferString(`{"reason":"live_test_cleanup"}`))
+	// STEP C: DELETE /api/users/account (Hard-deletes from live PostgreSQL)
+	req3 := httptest.NewRequest(http.MethodDelete, "/api/users/account", bytes.NewBufferString(`{"reason":"live_test_cleanup"}`))
 	req3.Header.Set("X-User-Id", testUserID)
 	rec3 := httptest.NewRecorder()
 	server.ServeHTTP(rec3, req3)
