@@ -81,8 +81,10 @@ func (h *DocHandler) ServeSwaggerUI(w http.ResponseWriter, r *http.Request) {
   <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
   <script>
     window.onload = function() {
+      var path = window.location.pathname;
+      var specUrl = path.endsWith("/") ? "./openapi.yaml" : "./docs/openapi.yaml";
       window.ui = SwaggerUIBundle({
-        url: "/docs/openapi.yaml",
+        url: specUrl,
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [

@@ -7,12 +7,8 @@
   },
   "servers": [
     {
-      "url": "http://localhost:8082",
-      "description": "Local User Service Direct"
-    },
-    {
-      "url": "http://localhost:80",
-      "description": "API Gateway Ingress"
+      "url": "./",
+      "description": "Current Base Path (Relative)"
     }
   ],
   "tags": [

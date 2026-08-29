@@ -48,9 +48,13 @@ func NewRouter(
 	// API Documentation & Swagger UI Routes
 	if docHandler != nil {
 		r.Get("/docs", docHandler.ServeSwaggerUI)
+		r.Get("/docs/", docHandler.ServeSwaggerUI)
 		r.Get("/swagger", docHandler.ServeSwaggerUI)
+		r.Get("/swagger/", docHandler.ServeSwaggerUI)
 		r.Get("/docs/openapi.yaml", docHandler.ServeOpenAPIYAML)
 		r.Get("/docs/openapi.json", docHandler.ServeOpenAPIJSON)
+		r.Get("/swagger/openapi.yaml", docHandler.ServeOpenAPIYAML)
+		r.Get("/swagger/openapi.json", docHandler.ServeOpenAPIJSON)
 	}
 
 	// Customer API Routes Helper

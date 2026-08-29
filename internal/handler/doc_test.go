@@ -24,8 +24,8 @@ func TestDocHandler_ServeSwaggerUI(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "SwaggerUIBundle") || !strings.Contains(body, "/docs/openapi.yaml") {
-		t.Errorf("Swagger UI HTML does not contain required scripts or openapi URL: %s", body)
+	if !strings.Contains(body, "SwaggerUIBundle") || !strings.Contains(body, "./openapi.yaml") {
+		t.Errorf("Swagger UI HTML does not contain required scripts or relative openapi URL: %s", body)
 	}
 }
 

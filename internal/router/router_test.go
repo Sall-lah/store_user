@@ -42,7 +42,16 @@ func TestRouterRoutes(t *testing.T) {
 	}
 
 	// 2. Documentation routes
-	docRoutes := []string{"/docs", "/swagger", "/docs/openapi.yaml", "/docs/openapi.json"}
+	docRoutes := []string{
+		"/docs",
+		"/docs/",
+		"/swagger",
+		"/swagger/",
+		"/docs/openapi.yaml",
+		"/docs/openapi.json",
+		"/swagger/openapi.yaml",
+		"/swagger/openapi.json",
+	}
 	for _, path := range docRoutes {
 		reqDoc := httptest.NewRequest(http.MethodGet, path, nil)
 		recDoc := httptest.NewRecorder()
